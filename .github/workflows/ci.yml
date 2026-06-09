@@ -2,10 +2,9 @@ name: CI
 
 on:
   push:
-    branches:
-      - main
+    branches: [master, main]
   pull_request:
-    types: [opened, reopened, synchronize]
+    branches: [master, main]
 
 env:
   CARGO_TERM_COLOR: always
@@ -141,4 +140,3 @@ jobs:
         run: cargo doc --manifest-path=prover/Cargo.toml --no-deps
       - name: cargo doc (client)
         run: cargo doc --manifest-path=client/Cargo.toml --no-deps
-
