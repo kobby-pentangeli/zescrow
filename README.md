@@ -2,8 +2,8 @@
 
 [![Crates.io](https://img.shields.io/crates/v/zescrow-core.svg)](https://crates.io/crates/zescrow-core)
 [![Documentation](https://docs.rs/zescrow-core/badge.svg)](https://docs.rs/zescrow-core)
-[![CI](https://github.com/maatlabs/zescrow/workflows/CI/badge.svg)](https://github.com/maatlabs/zescrow/actions)
-[![License](https://img.shields.io/crates/l/zescrow.svg)](https://github.com/maatlabs/zescrow#license)
+[![CI](https://github.com/kobby-pentangeli/zescrow/workflows/CI/badge.svg)](https://github.com/kobby-pentangeli/zescrow/actions)
+[![License](https://img.shields.io/crates/l/zescrow.svg)](https://github.com/kobby-pentangeli/zescrow#license)
 
 Zescrow (for zero-knowledge escrow) is a trust-minimized, chain-agnostic implementation of an escrow program using the RISC Zero zkVM as the zero-knowledge prover/verifier.
 
@@ -38,7 +38,7 @@ zescrow/
 
 ```bash
 # Clone and enter the repository
-git clone https://github.com/maatlabs/zescrow.git
+git clone https://github.com/kobby-pentangeli/zescrow.git
 cd zescrow
 
 # Set up environment
@@ -98,8 +98,8 @@ RISC0_SKIP_BUILD=1 cargo doc --all-features --no-deps
 
 Thank you for considering contributing to this project! All contributions large and small are actively accepted.
 
-- To get started, please read the [contribution guidelines](https://github.com/maatlabs/zescrow/blob/main/CONTRIBUTING.md).
-- Browse [Good First Issues](https://github.com/maatlabs/zescrow/labels/good%20first%20issue).
+- To get started, please read the [contribution guidelines](https://github.com/kobby-pentangeli/zescrow/blob/main/CONTRIBUTING.md).
+- Browse [Good First Issues](https://github.com/kobby-pentangeli/zescrow/labels/good%20first%20issue).
 
 ## License
 

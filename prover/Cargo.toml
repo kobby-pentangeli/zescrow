@@ -3,8 +3,8 @@ name = "zescrow-prover"
 version = "0.1.0"
 description = "RISC Zero zkVM prover for Zescrow"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/maatlabs/zescrow"
-homepage = "https://github.com/maatlabs/zescrow"
+repository = "https://github.com/kobby-pentangeli/zescrow"
+homepage = "https://github.com/kobby-pentangeli/zescrow"
 edition = "2021"
 
 [dependencies]
