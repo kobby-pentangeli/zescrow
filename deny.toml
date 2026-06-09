@@ -1,0 +1,45 @@
+# cargo-deny configuration. Run locally with `cargo deny check`.
+#
+# CI (.github/workflows/security.yml) runs `check advisories bans sources`. The
+# `licenses` check is configured below but not yet enforced in CI: the full
+# cross-chain dependency tree pulls a wide license set that must be enumerated
+# and validated with `cargo deny check licenses` before the gate is turned on.
+
+[advisories]
+version = 2
+yanked = "deny"
+ignore = [
+  # bincode 2.x is flagged unmaintained, not vulnerable. It is zescrow's wire
+  # serializer, so migrating off it is a breaking wire-format change tracked as
+  # future work. A genuine bincode *vulnerability* would carry a different
+  # advisory ID and is intentionally not ignored here.
+  "RUSTSEC-2025-0141",
+]
+
+[bans]
+# The cross-chain dependency tree (Solana, ethers, RISC Zero) legitimately
+# carries duplicate transitive versions; warn rather than fail so the signal is
+# visible without blocking unrelated work.
+multiple-versions = "warn"
+wildcards = "warn"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+
+[licenses]
+version = 2
+confidence-threshold = 0.9
+allow = [
+  "MIT",
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "ISC",
+  "Unicode-3.0",
+  "Unicode-DFS-2016",
+  "MPL-2.0",
+  "Zlib",
+  "CC0-1.0",
+]

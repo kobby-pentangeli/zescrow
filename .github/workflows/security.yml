@@ -1,44 +1,38 @@
 name: Security Audit
 
 on:
-    schedule:
-        - cron: "0 0 * * *" # Daily at midnight
-    push:
-        branches: [master, main]
-        paths:
-            - "**/Cargo.toml"
-            - "**/Cargo.lock"
-            - ".cargo/audit.toml"
-            - ".github/workflows/security.yml"
-    pull_request:
-        branches: [master, main]
-        paths:
-            - "**/Cargo.toml"
-            - "**/Cargo.lock"
-            - ".cargo/audit.toml"
-            - ".github/workflows/security.yml"
+  schedule:
+    - cron: "0 0 * * *" # Daily at midnight UTC
+  push:
+    branches: [master]
+    paths:
+      - "**/Cargo.toml"
+      - "**/Cargo.lock"
+      - "deny.toml"
+      - ".github/workflows/security.yml"
+  pull_request:
+    branches: [master]
+    paths:
+      - "**/Cargo.toml"
+      - "**/Cargo.lock"
+      - "deny.toml"
+      - ".github/workflows/security.yml"
 
 permissions:
-    contents: read
+  contents: read
 
 concurrency:
-    group: security-${{ github.workflow }}-${{ github.ref }}
-    cancel-in-progress: true
+  group: security-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-    audit:
-        name: Security Audit
-        runs-on: ubuntu-latest
-        permissions:
-            contents: read
-            issues: write
-            checks: write
-        steps:
-            - uses: actions/checkout@v4
-            # RUSTSEC-2025-0141 (bincode unmaintained) is an informational warning,
-            # not a vulnerability; it is tracked as a deferred wire-format migration and
-            # mirrored in .cargo/audit.toml.
-            - uses: rustsec/audit-check@v2.0.0
-              with:
-                  token: ${{ secrets.GITHUB_TOKEN }}
-                  ignore: RUSTSEC-2025-0141
+  cargo-deny:
+    name: cargo-deny
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # `licenses` is omitted until its allow-list is validated locally
+      # (see deny.toml). advisories/bans/sources are deterministic gates.
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check advisories bans sources
