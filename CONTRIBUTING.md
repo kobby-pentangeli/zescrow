@@ -19,7 +19,7 @@ When filing an issue, please check [existing open](https://github.com/kobby-pent
 
 Contributions via pull requests are much appreciated. Before sending a pull request, please ensure that:
 
-1. You are working against the latest source on the *main* branch.
+1. You are working against the latest source on the *master* branch.
 2. You check existing open, and recently merged, pull requests to make sure someone else hasn't addressed the problem already.
 3. You open an issue to discuss any significant work.
 

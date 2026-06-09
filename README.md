@@ -96,13 +96,13 @@ RISC0_SKIP_BUILD=1 cargo doc --all-features --no-deps
 
 ## Contributing
 
-Thank you for considering contributing to this project! All contributions large and small are actively accepted.
-
-- To get started, please read the [contribution guidelines](https://github.com/kobby-pentangeli/zescrow/blob/main/CONTRIBUTING.md).
-- Browse [Good First Issues](https://github.com/kobby-pentangeli/zescrow/labels/good%20first%20issue).
+Contributions are welcome! Please read our [Contributing Guidelines](CONTRIBUTING.md) and [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## License
 
-Licensed under either of [Apache License, Version 2.0](./LICENSE-APACHE) or [MIT license](./LICENSE-MIT) at your option.
+Licensed under either of
 
-Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in this codebase by you, as defined in the Apache-2.0 license, shall be dual licensed as above, without any additional terms or conditions.
+- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE) or <http://www.apache.org/licenses/LICENSE-2.0>)
+- MIT license ([LICENSE-MIT](LICENSE-MIT) or <http://opensource.org/licenses/MIT>)
+
+at your option.
