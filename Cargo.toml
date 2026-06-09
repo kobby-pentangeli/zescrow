@@ -1,7 +1,31 @@
 [workspace]
-members = ["client", "core", "prover", "agent/solana/escrow/programs/escrow"]
-
+members = ["client", "core", "prover", "prover/methods"]
+exclude = ["agent/solana/escrow"]
 resolver = "2"
+
+[workspace.package]
+version = "0.3.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/kobby-pentangeli/zescrow"
+homepage = "https://github.com/kobby-pentangeli/zescrow"
+
+[workspace.dependencies]
+# Internal crates
+zescrow-core = { path = "core", version = "0.3.0", default-features = false }
+zescrow-prover = { path = "prover", version = "0.3.0" }
+zescrow-methods = { path = "prover/methods", version = "0.3.0" }
+
+# Third-party dependencies shared by more than one member
+anyhow = "1"
+bincode = { version = "2", features = ["derive"] }
+hex = { version = "0.4", features = ["serde"] }
+num-traits = "0.2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+thiserror = "2"
+tracing = "0.1"
 
 [profile.release]
 overflow-checks = true

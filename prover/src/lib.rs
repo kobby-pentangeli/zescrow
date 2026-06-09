@@ -29,10 +29,10 @@
 
 use anyhow::Context;
 use bincode::config::standard;
-use risc0_zkvm::{default_prover, ExecutorEnv, Receipt};
+use risc0_zkvm::{ExecutorEnv, Receipt, default_prover};
 use thiserror::Error;
 use tracing::{info, info_span};
-use zescrow_core::interface::{load_escrow_data, ExecutionResult, ESCROW_METADATA_PATH};
+use zescrow_core::interface::{ESCROW_METADATA_PATH, ExecutionResult, load_escrow_data};
 use zescrow_core::{Escrow, EscrowMetadata, ExecutionState};
 use zescrow_methods::{ZESCROW_GUEST_ELF, ZESCROW_GUEST_ID};
 

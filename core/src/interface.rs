@@ -47,16 +47,27 @@ pub const ESCROW_CONDITIONS_PATH: &str = concat!(
 ///
 /// ```
 /// # use zescrow_core::interface::expand_env_vars;
-/// std::env::set_var("MY_VAR", "hello");
-/// assert_eq!(expand_env_vars("prefix-${MY_VAR}-suffix"), "prefix-hello-suffix");
+/// // Strings without `${...}` are returned unchanged.
+/// assert_eq!(expand_env_vars("prefix-suffix"), "prefix-suffix");
 ///
-/// // Unset variables become empty strings
-/// std::env::remove_var("UNSET_VAR");
-/// assert_eq!(expand_env_vars("${UNSET_VAR}"), "");
+/// // Unset variables expand to empty strings.
+/// assert_eq!(expand_env_vars("${ZESCROW_DOC_UNSET_VAR}"), "");
 /// ```
 #[cfg(feature = "json")]
 #[must_use]
 pub fn expand_env_vars(input: &str) -> Cow<'_, str> {
+    expand_with(input, |name| std::env::var(name).ok())
+}
+
+/// Expands `${VAR}` references in `input`, resolving each name through `lookup`.
+///
+/// Names that `lookup` resolves to `None` are replaced with an empty string.
+/// Returns `Cow::Borrowed` when the input contains no `${` and needs no expansion.
+#[cfg(feature = "json")]
+fn expand_with<F>(input: &str, lookup: F) -> Cow<'_, str>
+where
+    F: Fn(&str) -> Option<String>,
+{
     if !input.contains("${") {
         return Cow::Borrowed(input);
     }
@@ -71,7 +82,7 @@ pub fn expand_env_vars(input: &str) -> Cow<'_, str> {
         match after_start.find('}') {
             Some(end) => {
                 let var_name = &after_start[..end];
-                if let Ok(value) = std::env::var(var_name) {
+                if let Some(value) = lookup(var_name) {
                     result.push_str(&value);
                 }
                 remaining = &after_start[end + 1..];
@@ -312,41 +323,39 @@ mod tests {
 
     #[test]
     fn expand_env_vars_no_vars() {
-        let input = "no variables here";
-        let result = expand_env_vars(input);
+        let result = expand_env_vars("no variables here");
         assert_eq!(result, "no variables here");
         // Should return Borrowed when no expansion needed
         assert!(matches!(result, std::borrow::Cow::Borrowed(_)));
     }
 
     #[test]
-    fn expand_env_vars_single_var() {
-        std::env::set_var("TEST_VAR_SINGLE", "hello");
-        let result = expand_env_vars("prefix-${TEST_VAR_SINGLE}-suffix");
+    fn expand_with_single_var() {
+        let result = expand_with("prefix-${VAR}-suffix", |name| {
+            (name == "VAR").then(|| "hello".to_string())
+        });
         assert_eq!(result, "prefix-hello-suffix");
-        std::env::remove_var("TEST_VAR_SINGLE");
     }
 
     #[test]
-    fn expand_env_vars_multiple_vars() {
-        std::env::set_var("TEST_VAR_A", "alpha");
-        std::env::set_var("TEST_VAR_B", "beta");
-        let result = expand_env_vars("${TEST_VAR_A} and ${TEST_VAR_B}");
+    fn expand_with_multiple_vars() {
+        let result = expand_with("${A} and ${B}", |name| match name {
+            "A" => Some("alpha".to_string()),
+            "B" => Some("beta".to_string()),
+            _ => None,
+        });
         assert_eq!(result, "alpha and beta");
-        std::env::remove_var("TEST_VAR_A");
-        std::env::remove_var("TEST_VAR_B");
     }
 
     #[test]
-    fn expand_env_vars_unset_becomes_empty() {
-        std::env::remove_var("TEST_VAR_UNSET_XYZ");
-        let result = expand_env_vars("before-${TEST_VAR_UNSET_XYZ}-after");
+    fn expand_with_unset_becomes_empty() {
+        let result = expand_with("before-${UNSET}-after", |_| None);
         assert_eq!(result, "before--after");
     }
 
     #[test]
-    fn expand_env_vars_unclosed_brace() {
-        let result = expand_env_vars("prefix-${UNCLOSED");
+    fn expand_with_unclosed_brace() {
+        let result = expand_with("prefix-${UNCLOSED", |_| Some("value".to_string()));
         assert_eq!(result, "prefix-${UNCLOSED");
     }
 }

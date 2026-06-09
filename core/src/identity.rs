@@ -10,8 +10,8 @@
 
 use std::str::FromStr;
 
-use base64::prelude::*;
 use base64::Engine;
+use base64::prelude::*;
 use bincode::{Decode, Encode};
 #[cfg(feature = "json")]
 use serde::{Deserialize, Serialize};

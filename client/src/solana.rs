@@ -6,13 +6,13 @@
 use core::str::FromStr;
 use std::path::{Path, PathBuf};
 
-use anchor_lang::{system_program, InstructionData};
-use escrow::{instruction as escrow_instruction, CreateEscrowArgs, ESCROW};
+use anchor_lang::{InstructionData, system_program};
+use escrow::{CreateEscrowArgs, ESCROW, instruction as escrow_instruction};
 use num_traits::ToPrimitive;
 use solana_client::rpc_client::RpcClient;
 use solana_sdk::instruction::{AccountMeta, Instruction};
 use solana_sdk::pubkey::Pubkey;
-use solana_sdk::signature::{read_keypair_file, Keypair};
+use solana_sdk::signature::{Keypair, read_keypair_file};
 use solana_sdk::signer::Signer;
 use solana_sdk::transaction::Transaction;
 use tracing::{debug, info, trace};
@@ -20,8 +20,8 @@ use zescrow_core::interface::ChainConfig;
 use zescrow_core::{EscrowMetadata, EscrowParams, ExecutionState};
 
 use super::Agent;
-use crate::error::ClientError;
 use crate::Result;
+use crate::error::ClientError;
 
 // Instruction names for logging.
 const CREATE_ESCROW: &str = "create_escrow";

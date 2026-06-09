@@ -13,8 +13,6 @@ artifacts/build-info/
 .vscode
 
 # Output from Cargo
-Cargo.lock
-methods/guest/Cargo.lock
 target/
 
 # Solana test validator logs

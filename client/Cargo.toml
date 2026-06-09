@@ -1,49 +1,39 @@
 [package]
 name = "zescrow-client"
-version = "0.2.0"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
 description = "The Zescrow client CLI for cross-chain escrow operations"
-license = "MIT OR Apache-2.0"
-repository = "https://github.com/kobby-pentangeli/zescrow"
-homepage = "https://github.com/kobby-pentangeli/zescrow"
 readme = "README.md"
-edition = "2021"
 
 [features]
 default = []
 prover = ["dep:zescrow-prover"]
 
 [dependencies]
-anyhow = "1.0"
+anyhow = { workspace = true }
 async-trait = "0.1"
 anchor-client = "0.32.1"
 anchor-lang = "0.32.1"
-bincode = { version = "2", features = ["derive"] }
+bincode = { workspace = true }
 clap = { version = "4", features = ["derive"] }
 dotenvy = "0.15"
 ethers = { version = "2", features = ["rustls"] }
-hex = { version = "0.4", features = ["serde"] }
-num-traits = "0.2"
+hex = { workspace = true }
+num-traits = { workspace = true }
 rustc-hex = "2"
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-sha2 = "0.10"
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
 solana-client = "2"
 solana-sdk = "2"
-thiserror = "2"
+thiserror = { workspace = true }
 tokio = { version = "1", features = ["full"] }
-tracing = "0.1"
+tracing = { workspace = true }
 tracing-subscriber = { version = "0.3.22", features = ["env-filter", "fmt"] }
 url = { version = "2.5", features = ["std"] }
-
-[dependencies.zescrow-core]
-path = "../core"
-default-features = false
-features = ["bincode", "json"]
-
-[dependencies.zescrow-prover]
-path = "../prover"
-optional = true
-
-[dependencies.escrow]
-path = "../agent/solana/escrow/programs/escrow"
-features = ["no-entrypoint"]
+zescrow-core = { workspace = true, features = ["bincode", "json"] }
+zescrow-prover = { workspace = true, optional = true }
+escrow = { path = "../agent/solana/escrow/programs/escrow", features = ["no-entrypoint"] }

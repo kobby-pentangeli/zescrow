@@ -12,8 +12,8 @@ use bincode::{Decode, Encode};
 #[cfg(feature = "json")]
 use serde::{Deserialize, Serialize};
 
-use crate::error::ConditionError;
 use crate::Result;
+use crate::error::ConditionError;
 
 /// Ed25519 signature over an arbitrary message.
 pub mod ed25519;

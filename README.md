@@ -31,8 +31,8 @@ zescrow/
 
 ### Prerequisites
 
-1. Install [Rust](https://rustup.rs/) (the `rust-toolchain.toml` will auto-select the correct version)
-2. (Optional) Install the [RISC Zero toolchain](https://dev.risczero.com/api/zkvm/quickstart#1-install-the-risc-zero-toolchain) - only required for ZK conditions
+1. Install [Rust](https://rustup.rs/) (stable; the workspace uses the 2024 edition, which requires Rust 1.85 or newer)
+2. (Optional) Install the [RISC Zero toolchain](https://dev.risczero.com/api/zkvm/quickstart#1-install-the-risc-zero-toolchain)---only required for ZK conditions
 
 ### Deploy
 

@@ -7,7 +7,7 @@
 use bincode::{Decode, Encode};
 #[cfg(feature = "json")]
 use {
-    crate::interface::{EscrowMetadata, ESCROW_CONDITIONS_PATH},
+    crate::interface::{ESCROW_CONDITIONS_PATH, EscrowMetadata},
     serde::{Deserialize, Serialize},
     serde_json,
 };

@@ -11,10 +11,10 @@ use serde::{Deserialize, Serialize};
 #[cfg(feature = "json")]
 use serde_json;
 
-use crate::error::AssetError;
 #[cfg(feature = "json")]
 use crate::EscrowError;
-use crate::{BigNumber, Result, ID};
+use crate::error::AssetError;
+use crate::{BigNumber, ID, Result};
 
 /// Represents an on-chain asset.
 #[cfg_attr(feature = "json", derive(Serialize, Deserialize))]
