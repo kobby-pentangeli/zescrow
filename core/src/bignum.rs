@@ -39,17 +39,14 @@ where
 
 impl Encode for BigNumber {
     fn encode<E: Encoder>(&self, encoder: &mut E) -> std::result::Result<(), EncodeError> {
-        let s = self.0.to_str_radix(10);
-        s.encode(encoder)
+        self.0.to_bytes_le().encode(encoder)
     }
 }
 
 impl<Context> Decode<Context> for BigNumber {
     fn decode<D: Decoder>(decoder: &mut D) -> std::result::Result<Self, DecodeError> {
-        let s = String::decode(decoder)?;
-        BigUint::parse_bytes(s.as_bytes(), 10)
-            .map(BigNumber)
-            .ok_or_else(|| DecodeError::OtherString("BigUint parse error".into()))
+        let bytes = Vec::<u8>::decode(decoder)?;
+        Ok(BigNumber(BigUint::from_bytes_le(&bytes)))
     }
 }
 
@@ -65,5 +62,36 @@ impl std::fmt::Display for BigNumber {
     /// Print the inner `BigUint` as a decimal string.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0.to_str_radix(10))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn encode_decode(value: BigNumber) {
+        let bytes = bincode::encode_to_vec(&value, bincode::config::standard()).unwrap();
+        let (decoded, _): (BigNumber, _) =
+            bincode::decode_from_slice(&bytes, bincode::config::standard()).unwrap();
+        assert_eq!(decoded, value);
+    }
+
+    #[test]
+    fn bincode_encode_decode_raw_bytes() {
+        encode_decode(BigNumber::zero());
+        encode_decode(BigNumber::from(1u64));
+        encode_decode(BigNumber::from(u64::MAX));
+        // A value wider than u128 to exercise multi-limb magnitudes.
+        let wide = BigUint::parse_bytes(b"123456789012345678901234567890123456789", 10).unwrap();
+        encode_decode(BigNumber(wide));
+    }
+
+    #[test]
+    fn bincode_encodes_little_endian_magnitude() {
+        // 0x0102 == 258, little-endian bytes [0x02, 0x01]; the length-prefixed
+        // bincode payload must contain those raw bytes, not the decimal string.
+        let bytes =
+            bincode::encode_to_vec(BigNumber::from(258u64), bincode::config::standard()).unwrap();
+        assert_eq!(bytes, vec![2, 2, 1]);
     }
 }

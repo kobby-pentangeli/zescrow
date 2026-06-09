@@ -6,7 +6,9 @@
 //! - Base64 (standard encoding)
 //! - Raw bytes
 //!
-//! Automatic format detection is performed during parsing.
+//! When the chain is known, prefer [`ID::for_chain`] / [`Party::for_chain`],
+//! which select the encoding deterministically. [`FromStr`] retains
+//! best-effort auto-detection for contexts where the chain is not yet known.
 
 use std::str::FromStr;
 
@@ -17,7 +19,7 @@ use bincode::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
 use crate::error::IdentityError;
-use crate::{EscrowError, Result};
+use crate::{Chain, EscrowError, Result};
 
 /// Maximum allowed length of the input string before decoding.
 /// Prevents arbitrarily‐long Base58/hex/base64 blobs.
@@ -75,6 +77,18 @@ impl Party {
     /// ```
     pub fn new<S: AsRef<str>>(id_str: S) -> Result<Self> {
         let identity = ID::from_str(id_str.as_ref())?;
+        Ok(Self { identity })
+    }
+
+    /// Parses a `Party` using the encoding for `chain`, removing the
+    /// ambiguity of auto-detection. See [`ID::for_chain`].
+    ///
+    /// # Errors
+    ///
+    /// Returns `EscrowError::Identity` if the input is empty, too long, or not
+    /// valid under the chain's encoding.
+    pub fn for_chain<S: AsRef<str>>(chain: Chain, id_str: S) -> Result<Self> {
+        let identity = ID::for_chain(chain, id_str.as_ref())?;
         Ok(Self { identity })
     }
 
@@ -199,6 +213,11 @@ impl std::fmt::Display for ID {
 impl FromStr for ID {
     type Err = EscrowError;
 
+    /// Best-effort auto-detection by trial decode, in precedence order
+    /// hex -> Base58 -> Base64. Because many byte strings decode validly under
+    /// more than one scheme, the first match wins and can mislabel the
+    /// encoding. When the chain is known, use [`ID::for_chain`] instead, which
+    /// is unambiguous.
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         Self::validate_length(s)?;
         let raw = Self::strip_hex_prefix(s.trim());
@@ -212,6 +231,36 @@ impl FromStr for ID {
 }
 
 impl ID {
+    /// Parses `s` into an identity using the encoding for `chain`:
+    /// Ethereum identities are hex (with optional `0x` prefix), Solana
+    /// identities are Base58. Resolving the encoding from the known chain
+    /// removes the ambiguity of [`FromStr`]'s trial-decode precedence.
+    ///
+    /// # Errors
+    ///
+    /// Returns `EscrowError::Identity` if the input is empty, exceeds the
+    /// maximum length, or is not valid under the chain's encoding.
+    pub fn for_chain(chain: Chain, s: &str) -> Result<Self> {
+        let trimmed = s.trim();
+        Self::validate_length(trimmed)?;
+
+        let id = match chain {
+            Chain::Ethereum => {
+                let bytes =
+                    hex::decode(Self::strip_hex_prefix(trimmed)).map_err(IdentityError::Hex)?;
+                Self::Hex(hex::encode(bytes))
+            }
+            Chain::Solana => {
+                let bytes = bs58::decode(trimmed)
+                    .into_vec()
+                    .map_err(IdentityError::Base58)?;
+                Self::Base58(bs58::encode(bytes).into_string())
+            }
+        };
+
+        id.validate().map(|_| id)
+    }
+
     /// Validates that the input string does not exceed the maximum allowed length.
     fn validate_length(s: &str) -> Result<()> {
         (s.len() <= MAX_ID_LEN).then_some(()).ok_or_else(|| {
@@ -337,6 +386,28 @@ mod tests {
     #[test]
     fn invalid_identity() {
         assert!(ID::from_str("not a valid ID").is_err());
+    }
+
+    #[test]
+    fn for_chain_is_unambiguous() {
+        // "deadbeef" decodes validly as hex, Base58, and Base64; auto-detect
+        // resolves it to hex by precedence, but the chain context is explicit.
+        let eth = ID::for_chain(Chain::Ethereum, "0xDEADBEEF").unwrap();
+        assert_eq!(eth, ID::Hex("deadbeef".into()));
+        assert_eq!(eth.to_bytes().unwrap(), vec![0xde, 0xad, 0xbe, 0xef]);
+
+        let raw = vec![1u8, 2, 3, 4];
+        let b58 = bs58::encode(&raw).into_string();
+        let sol = ID::for_chain(Chain::Solana, &b58).unwrap();
+        assert_eq!(sol, ID::Base58(b58));
+        assert_eq!(sol.to_bytes().unwrap(), raw);
+    }
+
+    #[test]
+    fn for_chain_rejects_invalid() {
+        // 'g' is not a hex digit; empty Solana input has no bytes.
+        assert!(ID::for_chain(Chain::Ethereum, "0xZZ").is_err());
+        assert!(ID::for_chain(Chain::Solana, "").is_err());
     }
 
     #[test]

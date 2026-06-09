@@ -22,16 +22,19 @@ use serde::{Deserialize, Serialize};
 use crate::{Asset, EscrowError, Party};
 
 /// Default path to escrow parameters configuration.
+#[cfg(feature = "json")]
 pub const ESCROW_PARAMS_PATH: &str =
     concat!(env!("CARGO_MANIFEST_DIR"), "/../deploy/escrow_params.json");
 
 /// Default path to on-chain escrow metadata (output from create command).
+#[cfg(feature = "json")]
 pub const ESCROW_METADATA_PATH: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../deploy/escrow_metadata.json"
 );
 
 /// Default path to escrow conditions.
+#[cfg(feature = "json")]
 pub const ESCROW_CONDITIONS_PATH: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../deploy/escrow_conditions.json"
@@ -64,9 +67,9 @@ pub fn expand_env_vars(input: &str) -> Cow<'_, str> {
 /// Names that `lookup` resolves to `None` are replaced with an empty string.
 /// Returns `Cow::Borrowed` when the input contains no `${` and needs no expansion.
 #[cfg(feature = "json")]
-fn expand_with<F>(input: &str, lookup: F) -> Cow<'_, str>
+fn expand_with<F>(input: &str, mut lookup: F) -> Cow<'_, str>
 where
-    F: Fn(&str) -> Option<String>,
+    F: FnMut(&str) -> Option<String>,
 {
     if !input.contains("${") {
         return Cow::Borrowed(input);
@@ -96,6 +99,35 @@ where
 
     result.push_str(remaining);
     Cow::Owned(result)
+}
+
+/// Expands `${VAR}` references for the config-loading path, failing if any
+/// referenced variable is unset.
+///
+/// Unlike [`expand_env_vars`], a missing variable is a hard error here: a
+/// secret-bearing field such as `sender_private_id` silently expanding to an
+/// empty string would surface only as a confusing downstream failure. The
+/// error names every unset variable so the misconfiguration is actionable.
+#[cfg(feature = "json")]
+fn expand_env_checked(input: &str) -> anyhow::Result<String> {
+    let mut missing = Vec::new();
+    let expanded = expand_with(input, |name| match std::env::var(name) {
+        Ok(value) => Some(value),
+        Err(_) => {
+            missing.push(name.to_string());
+            None
+        }
+    })
+    .into_owned();
+
+    if missing.is_empty() {
+        Ok(expanded)
+    } else {
+        anyhow::bail!(
+            "unset environment variable(s) referenced in configuration: {}",
+            missing.join(", ")
+        )
+    }
 }
 
 /// Reads a JSON-encoded file from the given `path` and deserializes into type `T`.
@@ -128,7 +160,7 @@ where
     let path = path.as_ref();
     let content =
         std::fs::read_to_string(path).with_context(|| format!("loading escrow data: {path:?}"))?;
-    let expanded = expand_env_vars(&content);
+    let expanded = expand_env_checked(&content)?;
     serde_json::from_str(&expanded).with_context(|| format!("parsing JSON from {path:?}"))
 }
 
@@ -206,7 +238,7 @@ pub struct EscrowParams {
     /// Chain-specific network configuration.
     pub chain_config: ChainConfig,
 
-    /// Exactly which asset to lock (native, token, NFT, pool-share, etc).
+    /// Exactly which asset to lock (the native coin or a fungible token).
     pub asset: Asset,
 
     /// Who is funding the escrow.
@@ -357,5 +389,20 @@ mod tests {
     fn expand_with_unclosed_brace() {
         let result = expand_with("prefix-${UNCLOSED", |_| Some("value".to_string()));
         assert_eq!(result, "prefix-${UNCLOSED");
+    }
+
+    #[test]
+    fn expand_env_checked_passthrough_without_vars() {
+        let result = expand_env_checked("no variables here").unwrap();
+        assert_eq!(result, "no variables here");
+    }
+
+    #[test]
+    fn expand_env_checked_errors_on_unset() {
+        let err = expand_env_checked("key=${ZESCROW_TEST_DEFINITELY_UNSET_VAR_XYZ}").unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("ZESCROW_TEST_DEFINITELY_UNSET_VAR_XYZ")
+        );
     }
 }

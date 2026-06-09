@@ -192,17 +192,26 @@ mod tests {
     }
 
     #[test]
-    fn zero_threshold() {
-        // threshold == 0 with empty subconditions should pass
+    fn zero_threshold_rejected() {
+        // threshold == 0 is malformed and must be rejected, not trivially satisfied
         let cond = Condition::threshold(0, vec![]);
-        assert!(cond.verify().is_ok());
+        assert!(cond.verify().is_err());
 
-        // threshold == 0 with subconditions should also pass
         let preimage = b"zkEscrow".to_vec();
         let hash = Sha256::digest(&preimage).into();
         let subcond = Condition::hashlock(hash, preimage);
         let cond = Condition::threshold(0, vec![subcond]);
-        assert!(cond.verify().is_ok());
+        assert!(cond.verify().is_err());
+    }
+
+    #[test]
+    fn threshold_exceeding_subconditions_rejected() {
+        let preimage = b"zkEscrow".to_vec();
+        let hash = Sha256::digest(&preimage).into();
+        let subcond = Condition::hashlock(hash, preimage);
+        // threshold of 2 over a single subcondition can never be met
+        let cond = Condition::threshold(2, vec![subcond]);
+        assert!(cond.verify().is_err());
     }
 
     #[test]

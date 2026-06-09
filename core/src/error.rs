@@ -8,8 +8,6 @@
 
 use thiserror::Error;
 
-use crate::BigNumber;
-
 /// Errors arising from on-chain `Escrow` operations and parameter validation.
 #[derive(Debug, Error)]
 #[non_exhaustive]
@@ -108,7 +106,7 @@ pub enum IdentityError {
 #[derive(Debug, Error)]
 #[non_exhaustive]
 pub enum AssetError {
-    /// Failed to parse an asset from a string or JSON.
+    /// Failed to serialize an asset to bytes or JSON.
     #[error("could not serialize asset: {0}")]
     Serialization(String),
 
@@ -116,42 +114,13 @@ pub enum AssetError {
     #[error("could not parse asset: {0}")]
     Parsing(String),
 
-    /// A fungible or multi-token amount and/or total supply was zero, which is not allowed.
+    /// A token or native amount was zero, which is not allowed.
     #[error("amount must be non-zero")]
     ZeroAmount,
 
-    /// ID for asset, program, or contract not provided.
+    /// The contract address or mint for a fungible token was not provided.
     #[error("missing ID for asset, program, or contract")]
     MissingId,
-
-    /// Total supply of token not provided.
-    #[error("missing `total_supply` for specified token")]
-    MissingTotalSupply,
-
-    /// Invalid ID for asset, program, or contract.
-    #[error("invalid ID for asset, program, or contract")]
-    InvalidId,
-
-    /// A liquidity pool share was invalid;
-    /// `share` must be > 0 and <= total supply.
-    #[error("share must be non-zero and <= total supply (share={0}, total={1})")]
-    InvalidShare(BigNumber, BigNumber),
-
-    /// The specified number of decimals was invalid.
-    #[error("invalid decimals: {0}")]
-    InvalidDecimals(u8),
-
-    /// Fixed-point formatting overflow (e.g., amount or decimals too large).
-    #[error("human formatting overflow: amount={0}, decimals={1}")]
-    FormatOverflow(BigNumber, u8),
-
-    /// The provided asset string did not match a supported format.
-    #[error("unsupported asset string format")]
-    UnsupportedFormat,
-
-    /// Error parsing an integer (e.g., token ID or amount) from a string.
-    #[error("integer parsing error: {0}")]
-    ParseInt(#[from] std::num::ParseIntError),
 }
 
 impl EscrowError {
