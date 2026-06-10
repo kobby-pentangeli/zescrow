@@ -63,6 +63,7 @@ contract Escrow is ReentrancyGuard {
     error InvalidRecipient(); // recipient must be non-zero
     error InsufficientValue(); // msg.value must be non-zero
     error TimeLockUnset(); // neither finishAfter nor cancelAfter set
+    error ConditionRequiresCancel(); // conditioned escrow without a refund deadline
     error InvalidTimeOrder(); // finishAfter >= cancelAfter when both set
     error EscrowNotExists(); // no escrow for the given id
     error OnlyRecipient(); // finishEscrow caller is not the recipient
@@ -87,7 +88,10 @@ contract Escrow is ReentrancyGuard {
     /// @notice Create a new escrow funded by `msg.value`.
     /// @dev At least one of `finishAfter`/`cancelAfter` must be set; when both
     ///      are set, `finishAfter < cancelAfter` so the release window opens
-    ///      strictly before the refund window.
+    ///      strictly before the refund window. A conditioned escrow
+    ///      (`conditionId != 0`) must set `cancelAfter`: release is proof-gated,
+    ///      so without a refund deadline the funds would lock forever if the
+    ///      proof never arrives.
     /// @param recipient Address that receives the funds on release.
     /// @param finishAfter Block after which release is allowed (0 = immediate).
     /// @param cancelAfter Block after which refund is allowed (0 = disabled).
@@ -103,6 +107,9 @@ contract Escrow is ReentrancyGuard {
         if (recipient == address(0)) revert InvalidRecipient();
         if (msg.value == 0) revert InsufficientValue();
         if (finishAfter == 0 && cancelAfter == 0) revert TimeLockUnset();
+        if (conditionId != bytes32(0) && cancelAfter == 0) {
+            revert ConditionRequiresCancel();
+        }
         if (
             finishAfter != 0 && cancelAfter != 0 && finishAfter >= cancelAfter
         ) {

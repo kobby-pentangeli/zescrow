@@ -268,6 +268,16 @@ fn settled_escrow_cannot_be_finished_again() {
 }
 
 #[test]
+fn conditioned_without_cancel_is_rejected_at_create() {
+    let mut h = Harness::new();
+    // A conditioned escrow is proof-gated, so it must carry a refund deadline;
+    // a finish-only window leaves no way out if the proof never arrives.
+    assert!(h.create(1, Some(100), None, CONDITIONED).is_err());
+    // The same escrow with a refund deadline is accepted.
+    assert!(h.create(1, Some(100), Some(200), CONDITIONED).is_ok());
+}
+
+#[test]
 fn cancel_window_not_after_finish_is_rejected_at_create() {
     let mut h = Harness::new();
     // cancel_after must open strictly after the finish window; Some(0) does not.

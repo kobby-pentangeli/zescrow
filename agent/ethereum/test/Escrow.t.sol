@@ -138,6 +138,19 @@ contract EscrowTest is Test {
         escrow.createEscrow{value: AMOUNT}(recipient, 0, 0, CONDITION_ID);
     }
 
+    function test_CreateEscrow_RevertsOnConditionedWithoutCancel() public {
+        // A conditioned escrow is proof-gated, so it must set a refund deadline;
+        // a finish-only window leaves no exit if the proof never arrives.
+        vm.prank(sender);
+        vm.expectRevert(Escrow.ConditionRequiresCancel.selector);
+        escrow.createEscrow{value: AMOUNT}(
+            recipient,
+            block.number + 1,
+            0,
+            CONDITION_ID
+        );
+    }
+
     function test_CreateEscrow_RevertsOnBadTimeOrder() public {
         vm.prank(sender);
         vm.expectRevert(Escrow.InvalidTimeOrder.selector);
@@ -445,7 +458,7 @@ contract EscrowTest is Test {
         uint256 id = escrow.createEscrow{value: amount}(
             recipient,
             block.number + 1,
-            0,
+            block.number + 100,
             CONDITION_ID
         );
         assertEq(escrow.getEscrow(id).amount, amount);

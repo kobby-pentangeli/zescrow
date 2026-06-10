@@ -57,11 +57,17 @@ pub mod escrow {
     /// finish window so the recipient always holds an exclusive release window
     /// before the sender can reclaim, making settlement deterministic. A non-zero
     /// `condition` records the witness-free release-condition commitment that a
-    /// later finish must prove against.
+    /// later finish must prove against, and forces a `cancel_after` deadline: a
+    /// conditioned release is proof-gated, so without a refund window the funds
+    /// would lock forever if the proof never arrives.
     pub fn create_escrow(ctx: Context<CreateEscrow>, args: CreateEscrowArgs) -> Result<()> {
         require!(
             args.finish_after.is_some() || args.cancel_after.is_some(),
             EscrowError::MustSpecifyPath
+        );
+        require!(
+            args.condition == NO_CONDITION || args.cancel_after.is_some(),
+            EscrowError::ConditionRequiresCancel
         );
         if let Some(cancel) = args.cancel_after {
             require!(
@@ -451,4 +457,8 @@ pub enum EscrowError {
     /// A lamport balance update overflowed.
     #[msg("Lamport arithmetic overflow.")]
     ArithmeticOverflow,
+
+    /// A conditioned escrow was created without a `cancel_after` refund deadline.
+    #[msg("A conditioned escrow must set cancel_after so funds cannot lock forever.")]
+    ConditionRequiresCancel,
 }
