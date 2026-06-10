@@ -1,0 +1,6 @@
+{
+  "filter_paths": "dependencies/|test/",
+  "exclude_informational": true,
+  "exclude_optimization": true,
+  "exclude_low": true
+}

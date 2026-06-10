@@ -1,13 +1,11 @@
-# Node dependencies
+# Node dependencies (Solana agent tests)
 node_modules/
 
-# TypeChain generated types
-typechain-types/
-
-# Hardhat build files
-cache/
-artifacts/
-artifacts/build-info/ 
+# Foundry build output and managed dependencies (Ethereum agent)
+agent/ethereum/out/
+agent/ethereum/cache/
+agent/ethereum/broadcast/
+agent/ethereum/dependencies/
 
 .DS_Store
 .vscode

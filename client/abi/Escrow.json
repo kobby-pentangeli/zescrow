@@ -1,301 +1,382 @@
 {
-  "_format": "hh-sol-artifact-1",
-  "contractName": "Escrow",
-  "sourceName": "contracts/Escrow.sol",
   "abi": [
     {
-      "inputs": [],
-      "name": "AlreadySettled",
-      "type": "error"
-    },
-    {
-      "inputs": [],
-      "name": "CancelDisabled",
-      "type": "error"
-    },
-    {
-      "inputs": [],
-      "name": "EscrowNotExists",
-      "type": "error"
-    },
-    {
-      "inputs": [],
-      "name": "InsufficientValue",
-      "type": "error"
-    },
-    {
-      "inputs": [],
-      "name": "InvalidRecipient",
-      "type": "error"
-    },
-    {
-      "inputs": [],
-      "name": "InvalidTimeOrder",
-      "type": "error"
-    },
-    {
-      "inputs": [],
-      "name": "OnlyRecipient",
-      "type": "error"
-    },
-    {
-      "inputs": [],
-      "name": "OnlySender",
-      "type": "error"
-    },
-    {
-      "inputs": [],
-      "name": "ReentrancyGuardReentrantCall",
-      "type": "error"
-    },
-    {
-      "inputs": [],
-      "name": "TimeLockUnset",
-      "type": "error"
-    },
-    {
-      "inputs": [],
-      "name": "TooEarlyToCancel",
-      "type": "error"
-    },
-    {
-      "inputs": [],
-      "name": "TooEarlyToFinish",
-      "type": "error"
-    },
-    {
-      "inputs": [],
-      "name": "TransferFailed",
-      "type": "error"
-    },
-    {
-      "anonymous": false,
+      "type": "constructor",
       "inputs": [
         {
-          "indexed": true,
-          "internalType": "uint256",
-          "name": "escrowId",
-          "type": "uint256"
+          "name": "verifier_",
+          "type": "address",
+          "internalType": "contract IRiscZeroVerifier"
         },
         {
-          "indexed": true,
-          "internalType": "address",
-          "name": "sender",
-          "type": "address"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint256",
-          "name": "amount",
-          "type": "uint256"
+          "name": "imageId_",
+          "type": "bytes32",
+          "internalType": "bytes32"
         }
       ],
-      "name": "EscrowCancelled",
-      "type": "event"
+      "stateMutability": "nonpayable"
     },
     {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": true,
-          "internalType": "uint256",
-          "name": "escrowId",
-          "type": "uint256"
-        },
-        {
-          "indexed": true,
-          "internalType": "address",
-          "name": "sender",
-          "type": "address"
-        },
-        {
-          "indexed": true,
-          "internalType": "address",
-          "name": "recipient",
-          "type": "address"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint256",
-          "name": "amount",
-          "type": "uint256"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint256",
-          "name": "finishAfter",
-          "type": "uint256"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint256",
-          "name": "cancelAfter",
-          "type": "uint256"
-        }
-      ],
-      "name": "EscrowCreated",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": true,
-          "internalType": "uint256",
-          "name": "escrowId",
-          "type": "uint256"
-        },
-        {
-          "indexed": true,
-          "internalType": "address",
-          "name": "recipient",
-          "type": "address"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint256",
-          "name": "amount",
-          "type": "uint256"
-        }
-      ],
-      "name": "EscrowFinished",
-      "type": "event"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "uint256",
-          "name": "escrowId",
-          "type": "uint256"
-        }
-      ],
+      "type": "function",
       "name": "cancelEscrow",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
       "inputs": [
         {
-          "internalType": "address",
-          "name": "recipient",
-          "type": "address"
-        },
-        {
-          "internalType": "uint256",
-          "name": "finishAfter",
-          "type": "uint256"
-        },
-        {
-          "internalType": "uint256",
-          "name": "cancelAfter",
-          "type": "uint256"
+          "name": "escrowId",
+          "type": "uint256",
+          "internalType": "uint256"
         }
       ],
+      "outputs": [],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
       "name": "createEscrow",
-      "outputs": [
+      "inputs": [
         {
-          "internalType": "uint256",
-          "name": "escrowId",
-          "type": "uint256"
+          "name": "recipient",
+          "type": "address",
+          "internalType": "address"
+        },
+        {
+          "name": "finishAfter",
+          "type": "uint256",
+          "internalType": "uint256"
+        },
+        {
+          "name": "cancelAfter",
+          "type": "uint256",
+          "internalType": "uint256"
+        },
+        {
+          "name": "conditionId",
+          "type": "bytes32",
+          "internalType": "bytes32"
         }
       ],
-      "stateMutability": "payable",
-      "type": "function"
+      "outputs": [
+        {
+          "name": "escrowId",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ],
+      "stateMutability": "payable"
     },
     {
-      "inputs": [],
+      "type": "function",
       "name": "escrowCount",
+      "inputs": [],
       "outputs": [
         {
-          "internalType": "uint256",
           "name": "",
-          "type": "uint256"
+          "type": "uint256",
+          "internalType": "uint256"
         }
       ],
-      "stateMutability": "view",
-      "type": "function"
+      "stateMutability": "view"
     },
     {
-      "inputs": [
-        {
-          "internalType": "uint256",
-          "name": "escrowId",
-          "type": "uint256"
-        }
-      ],
+      "type": "function",
       "name": "finishEscrow",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
       "inputs": [
         {
-          "internalType": "uint256",
           "name": "escrowId",
-          "type": "uint256"
+          "type": "uint256",
+          "internalType": "uint256"
+        },
+        {
+          "name": "seal",
+          "type": "bytes",
+          "internalType": "bytes"
+        },
+        {
+          "name": "journal",
+          "type": "bytes",
+          "internalType": "bytes"
         }
       ],
+      "outputs": [],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
       "name": "getEscrow",
+      "inputs": [
+        {
+          "name": "escrowId",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ],
       "outputs": [
         {
+          "name": "",
+          "type": "tuple",
+          "internalType": "struct Escrow.EscrowDB",
           "components": [
             {
-              "internalType": "address",
               "name": "sender",
-              "type": "address"
+              "type": "address",
+              "internalType": "address"
             },
             {
-              "internalType": "address",
               "name": "recipient",
-              "type": "address"
+              "type": "address",
+              "internalType": "address"
             },
             {
-              "internalType": "uint256",
               "name": "amount",
-              "type": "uint256"
+              "type": "uint256",
+              "internalType": "uint256"
             },
             {
-              "internalType": "uint256",
               "name": "finishAfter",
-              "type": "uint256"
+              "type": "uint256",
+              "internalType": "uint256"
             },
             {
-              "internalType": "uint256",
               "name": "cancelAfter",
-              "type": "uint256"
+              "type": "uint256",
+              "internalType": "uint256"
             },
             {
-              "internalType": "bool",
+              "name": "conditionId",
+              "type": "bytes32",
+              "internalType": "bytes32"
+            },
+            {
               "name": "settled",
-              "type": "bool"
+              "type": "bool",
+              "internalType": "bool"
             }
-          ],
-          "internalType": "struct Escrow.EscrowDB",
-          "name": "",
-          "type": "tuple"
+          ]
         }
       ],
-      "stateMutability": "view",
-      "type": "function"
+      "stateMutability": "view"
     },
     {
+      "type": "function",
+      "name": "imageId",
       "inputs": [],
-      "name": "nextEscrowId",
       "outputs": [
         {
-          "internalType": "uint256",
           "name": "",
-          "type": "uint256"
+          "type": "bytes32",
+          "internalType": "bytes32"
         }
       ],
-      "stateMutability": "view",
-      "type": "function"
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "nextEscrowId",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "verifier",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "",
+          "type": "address",
+          "internalType": "contract IRiscZeroVerifier"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "event",
+      "name": "EscrowCancelled",
+      "inputs": [
+        {
+          "name": "escrowId",
+          "type": "uint256",
+          "indexed": true,
+          "internalType": "uint256"
+        },
+        {
+          "name": "sender",
+          "type": "address",
+          "indexed": true,
+          "internalType": "address"
+        },
+        {
+          "name": "amount",
+          "type": "uint256",
+          "indexed": false,
+          "internalType": "uint256"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
+      "name": "EscrowCreated",
+      "inputs": [
+        {
+          "name": "escrowId",
+          "type": "uint256",
+          "indexed": true,
+          "internalType": "uint256"
+        },
+        {
+          "name": "sender",
+          "type": "address",
+          "indexed": true,
+          "internalType": "address"
+        },
+        {
+          "name": "recipient",
+          "type": "address",
+          "indexed": true,
+          "internalType": "address"
+        },
+        {
+          "name": "amount",
+          "type": "uint256",
+          "indexed": false,
+          "internalType": "uint256"
+        },
+        {
+          "name": "finishAfter",
+          "type": "uint256",
+          "indexed": false,
+          "internalType": "uint256"
+        },
+        {
+          "name": "cancelAfter",
+          "type": "uint256",
+          "indexed": false,
+          "internalType": "uint256"
+        },
+        {
+          "name": "conditionId",
+          "type": "bytes32",
+          "indexed": false,
+          "internalType": "bytes32"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
+      "name": "EscrowFinished",
+      "inputs": [
+        {
+          "name": "escrowId",
+          "type": "uint256",
+          "indexed": true,
+          "internalType": "uint256"
+        },
+        {
+          "name": "recipient",
+          "type": "address",
+          "indexed": true,
+          "internalType": "address"
+        },
+        {
+          "name": "amount",
+          "type": "uint256",
+          "indexed": false,
+          "internalType": "uint256"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "error",
+      "name": "AlreadySettled",
+      "inputs": []
+    },
+    {
+      "type": "error",
+      "name": "CancelDisabled",
+      "inputs": []
+    },
+    {
+      "type": "error",
+      "name": "EscrowNotExists",
+      "inputs": []
+    },
+    {
+      "type": "error",
+      "name": "InsufficientValue",
+      "inputs": []
+    },
+    {
+      "type": "error",
+      "name": "InvalidImageId",
+      "inputs": []
+    },
+    {
+      "type": "error",
+      "name": "InvalidRecipient",
+      "inputs": []
+    },
+    {
+      "type": "error",
+      "name": "InvalidTimeOrder",
+      "inputs": []
+    },
+    {
+      "type": "error",
+      "name": "InvalidVerifier",
+      "inputs": []
+    },
+    {
+      "type": "error",
+      "name": "JournalBindingMismatch",
+      "inputs": []
+    },
+    {
+      "type": "error",
+      "name": "MalformedJournal",
+      "inputs": []
+    },
+    {
+      "type": "error",
+      "name": "OnlyRecipient",
+      "inputs": []
+    },
+    {
+      "type": "error",
+      "name": "OnlySender",
+      "inputs": []
+    },
+    {
+      "type": "error",
+      "name": "ReentrancyGuardReentrantCall",
+      "inputs": []
+    },
+    {
+      "type": "error",
+      "name": "TimeLockUnset",
+      "inputs": []
+    },
+    {
+      "type": "error",
+      "name": "TooEarlyToCancel",
+      "inputs": []
+    },
+    {
+      "type": "error",
+      "name": "TooEarlyToFinish",
+      "inputs": []
+    },
+    {
+      "type": "error",
+      "name": "TransferFailed",
+      "inputs": []
     }
-  ],
-  "bytecode": "0x60806040526000600155348015601457600080fd5b5060016000556107ee806100296000396000f3fe6080604052600436106100555760003560e01c806332f1d7b61461005a578063675ac67a1461007c5780637d19e596146100a057806389cb29dd14610117578063e01824361461012c578063e2ecb3111461014c575b600080fd5b34801561006657600080fd5b5061007a610075366004610716565b61015f565b005b34801561008857600080fd5b506001545b6040519081526020015b60405180910390f35b3480156100ac57600080fd5b506100c06100bb366004610716565b610311565b604051610097919081516001600160a01b0390811682526020808401519091169082015260408083015190820152606080830151908201526080808301519082015260a09182015115159181019190915260c00190565b34801561012357600080fd5b5061008d6103d3565b34801561013857600080fd5b5061007a610147366004610716565b6103e9565b61008d61015a36600461072f565b61053d565b6101676106ec565b600081815260026020526040902080546001600160a01b031661019d57604051638f4b768760e01b815260040160405180910390fd5b60018101546001600160a01b031633146101ca5760405163a1bfc65b60e01b815260040160405180910390fd5b600581015460ff16156101ef5760405162560ff960e81b815260040160405180910390fd5b6003810154158015906102055750806003015443105b1561022357604051636fd3aba360e01b815260040160405180910390fd5b60058101805460ff191660019081179091556002820180546000909155908201546040518281526001600160a01b039091169084907feda1328f289aab0281cee423f732b8738d796295b2dfecffda861c64a4d4eb1f9060200160405180910390a360018201546040516000916001600160a01b03169083905b60006040518083038185875af1925050503d80600081146102da576040519150601f19603f3d011682016040523d82523d6000602084013e6102df565b606091505b5050905080610301576040516312171d8360e31b815260040160405180910390fd5b50505061030e6001600055565b50565b6040805160c081018252600080825260208201819052918101829052606081018290526080810182905260a0810191909152600082815260026020526040902080546001600160a01b031661037957604051638f4b768760e01b815260040160405180910390fd5b6040805160c08101825282546001600160a01b0390811682526001840154166020820152600283015491810191909152600382015460608201526004820154608082015260059091015460ff16151560a082015292915050565b600060015460016103e49190610786565b905090565b6103f16106ec565b600081815260026020526040902080546001600160a01b031661042757604051638f4b768760e01b815260040160405180910390fd5b80546001600160a01b0316331461045157604051637668df2d60e01b815260040160405180910390fd5b600581015460ff16156104765760405162560ff960e81b815260040160405180910390fd5b806004015460000361049b57604051631d4cf60b60e11b815260040160405180910390fd5b80600401544310156104c057604051639a9ca94560e01b815260040160405180910390fd5b60058101805460ff19166001179055600281018054600090915581546040516001600160a01b039091169084907fdb19fb28f3e1bd98931a09b28e0c217ab5008bfb3cbb1bdd406d994ad534a7359061051c9085815260200190565b60405180910390a381546040516000916001600160a01b031690839061029d565b60006001600160a01b03841661056657604051634e46966960e11b815260040160405180910390fd5b346000036105875760405163044044a560e21b815260040160405180910390fd5b82158015610593575081155b156105b157604051632293846d60e01b815260040160405180910390fd5b82158015906105bf57508115155b80156105cb5750818310155b156105e95760405163164e19e960e01b815260040160405180910390fd5b6001600081546105f89061079f565b91829055506040805160c081018252338082526001600160a01b0388811660208085018281523486880181815260608089018e815260808a018e8152600060a08c018181528e82526002808a52918e90209c518d546001600160a01b0319908116918d16919091178e55975160018e0180549099169b169a909a179096559251948a01949094559251600389015551600488015593516005909601805460ff19169615159690961790955585519283528201899052938101879052939450919284917f9f1e7af3298bd0a48f25259625f34b5497194b5b4e9546a3f388bf0939d8b736910160405180910390a49392505050565b60026000540361070f57604051633ee5aeb560e01b815260040160405180910390fd5b6002600055565b60006020828403121561072857600080fd5b5035919050565b60008060006060848603121561074457600080fd5b83356001600160a01b038116811461075b57600080fd5b95602085013595506040909401359392505050565b634e487b7160e01b600052601160045260246000fd5b8082018082111561079957610799610770565b92915050565b6000600182016107b1576107b1610770565b506001019056fea26469706673582212202304cc8c69d9de7a2b4177ca7c20a3d9390d16db1ac9cfa4c235192e9ae60f0264736f6c634300081c0033",
-  "deployedBytecode": "0x6080604052600436106100555760003560e01c806332f1d7b61461005a578063675ac67a1461007c5780637d19e596146100a057806389cb29dd14610117578063e01824361461012c578063e2ecb3111461014c575b600080fd5b34801561006657600080fd5b5061007a610075366004610716565b61015f565b005b34801561008857600080fd5b506001545b6040519081526020015b60405180910390f35b3480156100ac57600080fd5b506100c06100bb366004610716565b610311565b604051610097919081516001600160a01b0390811682526020808401519091169082015260408083015190820152606080830151908201526080808301519082015260a09182015115159181019190915260c00190565b34801561012357600080fd5b5061008d6103d3565b34801561013857600080fd5b5061007a610147366004610716565b6103e9565b61008d61015a36600461072f565b61053d565b6101676106ec565b600081815260026020526040902080546001600160a01b031661019d57604051638f4b768760e01b815260040160405180910390fd5b60018101546001600160a01b031633146101ca5760405163a1bfc65b60e01b815260040160405180910390fd5b600581015460ff16156101ef5760405162560ff960e81b815260040160405180910390fd5b6003810154158015906102055750806003015443105b1561022357604051636fd3aba360e01b815260040160405180910390fd5b60058101805460ff191660019081179091556002820180546000909155908201546040518281526001600160a01b039091169084907feda1328f289aab0281cee423f732b8738d796295b2dfecffda861c64a4d4eb1f9060200160405180910390a360018201546040516000916001600160a01b03169083905b60006040518083038185875af1925050503d80600081146102da576040519150601f19603f3d011682016040523d82523d6000602084013e6102df565b606091505b5050905080610301576040516312171d8360e31b815260040160405180910390fd5b50505061030e6001600055565b50565b6040805160c081018252600080825260208201819052918101829052606081018290526080810182905260a0810191909152600082815260026020526040902080546001600160a01b031661037957604051638f4b768760e01b815260040160405180910390fd5b6040805160c08101825282546001600160a01b0390811682526001840154166020820152600283015491810191909152600382015460608201526004820154608082015260059091015460ff16151560a082015292915050565b600060015460016103e49190610786565b905090565b6103f16106ec565b600081815260026020526040902080546001600160a01b031661042757604051638f4b768760e01b815260040160405180910390fd5b80546001600160a01b0316331461045157604051637668df2d60e01b815260040160405180910390fd5b600581015460ff16156104765760405162560ff960e81b815260040160405180910390fd5b806004015460000361049b57604051631d4cf60b60e11b815260040160405180910390fd5b80600401544310156104c057604051639a9ca94560e01b815260040160405180910390fd5b60058101805460ff19166001179055600281018054600090915581546040516001600160a01b039091169084907fdb19fb28f3e1bd98931a09b28e0c217ab5008bfb3cbb1bdd406d994ad534a7359061051c9085815260200190565b60405180910390a381546040516000916001600160a01b031690839061029d565b60006001600160a01b03841661056657604051634e46966960e11b815260040160405180910390fd5b346000036105875760405163044044a560e21b815260040160405180910390fd5b82158015610593575081155b156105b157604051632293846d60e01b815260040160405180910390fd5b82158015906105bf57508115155b80156105cb5750818310155b156105e95760405163164e19e960e01b815260040160405180910390fd5b6001600081546105f89061079f565b91829055506040805160c081018252338082526001600160a01b0388811660208085018281523486880181815260608089018e815260808a018e8152600060a08c018181528e82526002808a52918e90209c518d546001600160a01b0319908116918d16919091178e55975160018e0180549099169b169a909a179096559251948a01949094559251600389015551600488015593516005909601805460ff19169615159690961790955585519283528201899052938101879052939450919284917f9f1e7af3298bd0a48f25259625f34b5497194b5b4e9546a3f388bf0939d8b736910160405180910390a49392505050565b60026000540361070f57604051633ee5aeb560e01b815260040160405180910390fd5b6002600055565b60006020828403121561072857600080fd5b5035919050565b60008060006060848603121561074457600080fd5b83356001600160a01b038116811461075b57600080fd5b95602085013595506040909401359392505050565b634e487b7160e01b600052601160045260246000fd5b8082018082111561079957610799610770565b92915050565b6000600182016107b1576107b1610770565b506001019056fea26469706673582212202304cc8c69d9de7a2b4177ca7c20a3d9390d16db1ac9cfa4c235192e9ae60f0264736f6c634300081c0033",
-  "linkReferences": {},
-  "deployedLinkReferences": {}
+  ]
 }

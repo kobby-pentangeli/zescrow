@@ -96,6 +96,41 @@ jobs:
       - run: cargo +stable clippy --manifest-path "$MANIFEST" --all-targets -- -D warnings
       - run: cargo +stable test --manifest-path "$MANIFEST"
 
+  # The Ethereum agent is a Foundry project with its own Solidity toolchain and
+  # Soldeer-managed dependencies, so it is covered by a dedicated job: format,
+  # build, the unit/revert/fuzz suite, and static analysis (Slither gating on
+  # high-severity findings, Aderyn as a supplementary report).
+  contracts-ethereum:
+    name: ethereum contracts (foundry)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: agent/ethereum
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+      - name: Install Solidity dependencies
+        run: forge soldeer install
+      - name: Format check
+        run: forge fmt --check
+      - name: Build
+        run: forge build
+      - name: Test (unit, revert, fuzz)
+        run: forge test -vvv
+      - name: Static analysis (Slither)
+        uses: crytic/slither-action@v0.4.0
+        with:
+          target: agent/ethereum
+          slither-config: agent/ethereum/slither.config.json
+          fail-on: high
+          ignore-compile: true
+      - name: Static analysis (Aderyn)
+        run: |
+          curl -L https://raw.githubusercontent.com/Cyfrin/aderyn/dev/cyfrinup/install | bash || true
+          "$HOME/.cyfrin/bin/cyfrinup" || true
+          "$HOME/.cyfrin/bin/aderyn" . || true
+
   # Builds the zkVM guest and exercises proof generation under dev mode, which
   # produces mock receipts and needs no GPU or Docker. This is the only job that
   # builds the guest, so it overrides the workflow-level skip with an empty value
