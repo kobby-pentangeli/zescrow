@@ -10,6 +10,7 @@ description = "RISC Zero zkVM prover for Zescrow"
 [dependencies]
 anyhow = { workspace = true }
 bincode = { workspace = true }
+risc0-ethereum-contracts = "3"
 risc0-zkvm = { version = "3", features = ["unstable"] }
 thiserror = { workspace = true }
 tracing = { workspace = true }

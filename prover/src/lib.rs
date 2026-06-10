@@ -82,6 +82,29 @@ pub struct EscrowProof {
     pub receipt: Receipt,
 }
 
+impl EscrowProof {
+    /// The selector-prefixed receipt seal an on-chain client submits.
+    ///
+    /// The 4-byte selector identifies the proof system and verifier version, so
+    /// the same encoding is consumed by both the EVM verifier and the Solana
+    /// verifier router; each chain client applies only its own framing (the EVM
+    /// agent submits these bytes verbatim, the Solana agent length-prefixes them
+    /// for the router CPI).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the receipt's seal cannot be encoded.
+    pub fn encoded_seal(&self) -> anyhow::Result<Vec<u8>> {
+        risc0_ethereum_contracts::encode_seal(&self.receipt)
+    }
+
+    /// The journal bytes committed by the guest, submitted alongside the seal so
+    /// the on-chain verifier can bind the proof to this exact settlement.
+    pub fn journal_bytes(&self) -> &[u8] {
+        &self.receipt.journal.bytes
+    }
+}
+
 /// The image id of the audited guest, for pinning in the on-chain verifiers.
 pub fn guest_image_id() -> [u32; 8] {
     ZESCROW_GUEST_ID
