@@ -95,3 +95,27 @@ jobs:
       - run: cargo +nightly fmt --manifest-path "$MANIFEST" -- --check
       - run: cargo +stable clippy --manifest-path "$MANIFEST" --all-targets -- -D warnings
       - run: cargo +stable test --manifest-path "$MANIFEST"
+
+  # Builds the zkVM guest and exercises proof generation under dev mode, which
+  # produces mock receipts and needs no GPU or Docker. This is the only job that
+  # builds the guest, so it overrides the workflow-level skip with an empty value
+  # (the guest builder skips only when RISC0_SKIP_BUILD is non-empty).
+  prover-devmode:
+    name: prover (dev-mode proving)
+    runs-on: ubuntu-latest
+    env:
+      RISC0_SKIP_BUILD: ""
+      RISC0_DEV_MODE: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install the RISC Zero toolchain
+        run: |
+          curl -L https://risczero.com/install | bash
+          echo "$HOME/.risc0/bin" >> "$GITHUB_PATH"
+          "$HOME/.risc0/bin/rzup" install
+      - name: Locate the r0vm prover server
+        run: echo "RISC0_SERVER_PATH=$(find "$HOME/.risc0" -type f -name r0vm | head -1)" >> "$GITHUB_ENV"
+      - name: Build the guest and run dev-mode proving tests
+        run: cargo test -p zescrow-prover

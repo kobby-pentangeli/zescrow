@@ -42,7 +42,7 @@ pub struct Asset {
 /// Fungible asset kinds the escrow can settle on-chain.
 #[cfg_attr(feature = "json", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "json", serde(rename_all = "snake_case"))]
-#[derive(Debug, Clone, Encode, Decode)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 pub enum AssetKind {
     /// Native chain coin (e.g., ETH, SOL).
     Native,

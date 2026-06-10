@@ -10638,6 +10638,7 @@ dependencies = [
  "anyhow",
  "bincode 2.0.1",
  "risc0-zkvm",
+ "sha2 0.10.9",
  "thiserror 2.0.18",
  "tracing",
  "zescrow-core",

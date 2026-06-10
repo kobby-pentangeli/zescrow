@@ -5,6 +5,7 @@
 //! - [`ConditionError`]: Cryptographic condition verification failures
 //! - [`IdentityError`]: Identity parsing and validation errors
 //! - [`AssetError`]: Asset validation and serialization errors
+//! - [`CommitmentError`]: Public-commitment journal encoding/decoding errors
 
 use thiserror::Error;
 
@@ -128,5 +129,46 @@ impl EscrowError {
     /// in the RISC Zero guest.
     pub fn to_str(&self) -> String {
         self.to_string()
+    }
+}
+
+/// Errors encoding or decoding the public-commitment journal.
+#[derive(Debug, Error)]
+#[non_exhaustive]
+pub enum CommitmentError {
+    /// The amount did not fit in the fixed 256-bit journal field.
+    #[error("amount exceeds 256 bits and cannot be committed")]
+    AmountTooLarge,
+
+    /// A length-prefixed field exceeded the journal's 16-bit size limit.
+    #[error("field length {0} exceeds the journal's 16-bit size limit")]
+    FieldTooLong(usize),
+
+    /// The journal ended before a field could be fully read.
+    #[error("journal truncated at offset {0}")]
+    Truncated(usize),
+
+    /// The journal carried unexpected bytes past its declared fields.
+    #[error("journal has trailing bytes after offset {0}")]
+    TrailingBytes(usize),
+
+    /// The journal's leading version byte is not a layout this build understands.
+    #[error("unknown journal version {0}")]
+    UnknownVersion(u8),
+
+    /// An enum discriminant in the journal did not map to a known variant.
+    #[error("unknown {field} tag {value}")]
+    UnknownTag {
+        /// Name of the field whose tag was unrecognized.
+        field: &'static str,
+        /// The unrecognized tag value.
+        value: u8,
+    },
+}
+
+impl CommitmentError {
+    /// Constructs a [`CommitmentError::UnknownTag`] for `field` and `value`.
+    pub(crate) fn unknown_tag(field: &'static str, value: u8) -> Self {
+        Self::UnknownTag { field, value }
     }
 }

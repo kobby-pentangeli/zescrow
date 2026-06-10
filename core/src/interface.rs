@@ -209,16 +209,6 @@ pub enum ExecutionState {
     ConditionsMet,
 }
 
-/// Result of escrow execution in the `client`.
-#[cfg_attr(feature = "json", derive(Serialize, Deserialize))]
-#[derive(Debug, Clone, Encode, Decode)]
-pub enum ExecutionResult {
-    /// Happy path; no errors in execution.
-    Ok(ExecutionState),
-    /// Unsuccessful escrow execution, with the error message.
-    Err(String),
-}
-
 /// Metadata returned from on-chain escrow creation.
 #[cfg_attr(feature = "json", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, Encode, Decode)]
@@ -279,7 +269,7 @@ pub struct ChainConfig {
 /// Supported blockchain networks.
 #[cfg_attr(feature = "json", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "json", serde(rename_all = "lowercase"))]
-#[derive(Debug, Copy, Clone, Encode, Decode)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Encode, Decode)]
 pub enum Chain {
     /// Ethereum and other EVM-compatible chains.
     Ethereum,

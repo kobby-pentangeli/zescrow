@@ -11,6 +11,7 @@
 use bincode::{Decode, Encode};
 #[cfg(feature = "json")]
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 use crate::Result;
 use crate::error::ConditionError;
@@ -98,6 +99,45 @@ impl Condition {
             subconditions,
         })
     }
+
+    /// A 32-byte SHA-256 commitment binding to this condition's public
+    /// parameters, excluding the secret witness.
+    pub fn commitment(&self) -> [u8; 32] {
+        let mut hasher = Sha256::new();
+        match self {
+            Self::Hashlock(hashlock) => {
+                hasher.update(b"ZESCROW_COND_HASHLOCK_V1");
+                hasher.update(hashlock.hash);
+            }
+            Self::Ed25519(ed25519) => {
+                hasher.update(b"ZESCROW_COND_ED25519_V1");
+                hasher.update(ed25519.public_key);
+                hasher.update(&ed25519.message);
+            }
+            Self::Secp256k1(secp256k1) => {
+                hasher.update(b"ZESCROW_COND_SECP256K1_V1");
+                hasher.update(&secp256k1.public_key);
+                hasher.update(&secp256k1.message);
+            }
+            Self::Threshold(threshold) => {
+                hasher.update(b"ZESCROW_COND_THRESHOLD_V1");
+                hasher.update(saturating_u32(threshold.threshold).to_be_bytes());
+                hasher.update(saturating_u32(threshold.subconditions.len()).to_be_bytes());
+                threshold
+                    .subconditions
+                    .iter()
+                    .for_each(|sub| hasher.update(sub.commitment()));
+            }
+        }
+        hasher.finalize().into()
+    }
+}
+
+/// Normalizes a `usize` count to a fixed-width `u32` for cross-platform
+/// (32-bit guest vs 64-bit host) commitment determinism. Counts this large are
+/// unreachable for valid conditions; saturating keeps the function total.
+fn saturating_u32(value: usize) -> u32 {
+    u32::try_from(value).unwrap_or(u32::MAX)
 }
 
 #[cfg(feature = "json")]

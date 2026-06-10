@@ -100,6 +100,15 @@ impl Party {
     pub fn verify_identity(&self) -> Result<()> {
         self.identity.validate()
     }
+
+    /// Returns the participant's raw on-chain address bytes.
+    ///
+    /// # Errors
+    ///
+    /// - `Err(EscrowError::Identity(_))` if the underlying [`ID`] cannot be decoded.
+    pub fn to_bytes(&self) -> Result<Vec<u8>> {
+        self.identity.to_bytes()
+    }
 }
 
 impl FromStr for Party {

@@ -5,6 +5,7 @@
 
 pub mod asset;
 pub mod bignum;
+pub mod commitment;
 pub mod condition;
 pub mod error;
 pub mod escrow;
@@ -15,6 +16,7 @@ pub mod serde;
 
 pub use asset::{Asset, AssetKind};
 pub use bignum::BigNumber;
+pub use commitment::{ExecutionResult, ProofInput, PublicCommitment};
 pub use condition::Condition;
 pub use error::EscrowError;
 pub use escrow::Escrow;
