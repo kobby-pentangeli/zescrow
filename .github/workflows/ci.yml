@@ -72,14 +72,18 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo doc --all-features --no-deps --document-private-items --workspace
 
-  # The Solana program is its own Anchor workspace, so it is not covered by the
-  # workspace-wide jobs above. These host-target checks run without the Solana
-  # platform toolchain; the on-chain build and program tests run separately.
+  # The Solana program is its own Anchor workspace (the escrow program plus a
+  # test-only verifier stub), excluded from the root workspace; the litesvm
+  # harness is a further excluded crate so the SBF toolchain never parses its
+  # edition-2024 dependencies. These host-target checks format and lint both. The
+  # SBF build and the harness suite (litesvm + journal parity) run in the
+  # dedicated job below.
   escrow-program:
-    name: escrow program (host checks)
+    name: solana program (host checks)
     runs-on: ubuntu-latest
     env:
-      MANIFEST: agent/solana/escrow/programs/escrow/Cargo.toml
+      MANIFEST: agent/solana/escrow/Cargo.toml
+      HARNESS: agent/solana/escrow/harness/Cargo.toml
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -92,9 +96,41 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: agent/solana/escrow
-      - run: cargo +nightly fmt --manifest-path "$MANIFEST" -- --check
+      - run: cargo +nightly fmt --manifest-path "$MANIFEST" --all -- --check
+      - run: cargo +nightly fmt --manifest-path "$HARNESS" --all -- --check
       - run: cargo +stable clippy --manifest-path "$MANIFEST" --all-targets -- -D warnings
-      - run: cargo +stable test --manifest-path "$MANIFEST"
+      - run: cargo +stable clippy --manifest-path "$HARNESS" --all-targets -- -D warnings
+
+  # Builds the escrow and mock-verifier programs to SBF and runs the harness:
+  # create/finish/cancel, authorization and time-lock reverts, the proof-gated
+  # finish through the verifier CPI, and the journal-reconstruction parity check.
+  # litesvm loads the compiled `.so` files directly, so no validator or Docker is
+  # required. The Agave toolchain is pinned to the 3.x line that Anchor 1.0.2 and
+  # litesvm target, so the emitted SBF loads under the test runtime.
+  escrow-program-sbf:
+    name: solana program (sbf build + harness)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: agent/solana/escrow
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: agent/solana/escrow
+      - name: Install the Agave (Solana) toolchain
+        run: |
+          sh -c "$(curl -sSfL https://release.anza.xyz/v3.0.13/install)"
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
+      # Anchor 1.0.2's proc-macro build dependencies are edition 2024, which needs
+      # a platform-tools whose Rust is >= 1.85; the toolchain bundled with the
+      # pinned Agave predates it, so the SBF build uses a newer platform-tools
+      # (the compiler only---the Solana runtime crates stay on the 3.x line).
+      - name: Build the SBF programs
+        run: cargo build-sbf --tools-version v1.53
+      - name: Harness suite (litesvm + journal parity)
+        run: cargo test --manifest-path harness/Cargo.toml
 
   # The Ethereum agent is a Foundry project with its own Solidity toolchain and
   # Soldeer-managed dependencies, so it is covered by a dedicated job: format,

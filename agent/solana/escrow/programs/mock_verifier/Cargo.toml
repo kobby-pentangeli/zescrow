@@ -1,14 +1,14 @@
 [package]
-name = "escrow"
+name = "mock_verifier"
 version = "0.3.0"
-description = "Zescrow Solana program with XRPL-style time-lock semantics"
+description = "Test-only RISC Zero verifier stub for the Zescrow Solana program"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/kobby-pentangeli/zescrow"
 edition = "2021"
 
 [lib]
 crate-type = ["cdylib", "lib"]
-name = "escrow"
+name = "mock_verifier"
 
 [features]
 default = []
@@ -20,7 +20,6 @@ idl-build = ["anchor-lang/idl-build"]
 
 [dependencies]
 anchor-lang = "1.0.2"
-sha2 = { version = "0.10", default-features = false }
 
 # Suppress lints triggered inside Anchor/Solana macro expansions (upstream issue)
 [lints.rust]

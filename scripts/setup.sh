@@ -27,9 +27,10 @@ set -euo pipefail
 
 # --- Version pins -------------------------------------------------------------
 # ANCHOR_VERSION must equal the anchor-lang / anchor-client versions pinned in
-# client/Cargo.toml and the Solana program manifest.
-ANCHOR_VERSION="${ANCHOR_VERSION:-0.32.1}"
-SOLANA_VERSION="${SOLANA_VERSION:-stable}"
+# client/Cargo.toml and the Solana program manifest. SOLANA_VERSION tracks the
+# Agave line those Anchor crates target, so the toolchain matches the manifests.
+ANCHOR_VERSION="${ANCHOR_VERSION:-1.0.2}"
+SOLANA_VERSION="${SOLANA_VERSION:-v3.0.13}"
 
 # --- Helpers ------------------------------------------------------------------
 log()  { printf '\033[1;34m[setup]\033[0m %s\n' "$*"; }

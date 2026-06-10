@@ -15,8 +15,8 @@ prover = ["dep:zescrow-prover"]
 [dependencies]
 anyhow = { workspace = true }
 async-trait = "0.1"
-anchor-client = "0.32.1"
-anchor-lang = "0.32.1"
+anchor-client = "1.0.2"
+anchor-lang = "1.0.2"
 bincode = { workspace = true }
 clap = { version = "4", features = ["derive"] }
 dotenvy = "0.15"
@@ -27,8 +27,8 @@ rustc-hex = "2"
 serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
-solana-client = "2"
-solana-sdk = "2"
+solana-client = "3"
+solana-sdk = "3"
 thiserror = { workspace = true }
 tokio = { version = "1", features = ["full"] }
 tracing = { workspace = true }

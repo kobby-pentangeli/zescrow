@@ -1,0 +1,23 @@
+[package]
+name = "escrow-harness"
+version = "0.3.0"
+description = "Host-side test harness for the Zescrow Solana program"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/kobby-pentangeli/zescrow"
+edition = "2021"
+publish = false
+
+[lib]
+name = "escrow_harness"
+
+# Excluded from the Anchor workspace so the SBF toolchain never parses this
+# crate's edition-2024 dependencies (`zescrow-core`); it builds host-only.
+[dependencies]
+anchor-lang = "1.0.2"
+escrow = { path = "../programs/escrow", features = ["no-entrypoint"] }
+litesvm = "0.12"
+solana-sdk = "3"
+zescrow-core = { path = "../../../../core" }
+
+[lints.rust]
+unexpected_cfgs = "allow"

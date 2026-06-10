@@ -1,42 +1,78 @@
-//! Escrow program with XRPL-style time-lock semantics.
+//! Escrow program with XRPL-style time-lock semantics and on-chain proof gating.
 //!
-//! This program implements an escrow system with configurable time-locks
-//! for releasing or canceling escrowed funds. It follows XRPL-style semantics
-//! where at least one resolution path (`finish_after` or `cancel_after`) must
-//! be specified.
+//! Funds are locked in a per-escrow PDA and released to the recipient only after
+//! its finish window opens and, for a conditioned escrow, a RISC Zero receipt
+//! proves the release condition was met. Verification is delegated to the
+//! audited RISC Zero Solana Verifier Router via CPI: this program reconstructs
+//! the binding journal from its own state, hashes it, and asks the
+//! router to check the seal against the pinned guest image id over that digest.
+//! A receipt that proves any other escrow, amount, or condition yields a
+//! different digest and fails verification, so a valid proof binds to exactly
+//! one settlement.
 
 use anchor_lang::prelude::*;
 use anchor_lang::solana_program::clock::Clock;
+use anchor_lang::solana_program::instruction::{AccountMeta, Instruction};
+use anchor_lang::solana_program::program::invoke;
 use anchor_lang::system_program;
+use sha2::{Digest, Sha256};
 
 declare_id!("J4SfUoLAAsvmAWMQGa8dJHw8vsSvRfUUMXGTxcmSeS8s");
 
-/// Seed prefix for PDA derivation.
+/// Seed prefix for escrow PDA derivation.
 pub const ESCROW: &[u8] = b"escrow";
+
+/// The RISC Zero Solana Verifier Router this program delegates proof checking to.
+pub const VERIFIER_ROUTER: Pubkey =
+    Pubkey::from_str_const("6JvFfBrvCcWgANKh1Eae9xDq4RC6cfJuBcf71rp2k9Y7");
+
+/// The pinned guest image id authorized to release conditioned escrows.
+pub const IMAGE_ID: [u8; 32] = [0u8; 32];
+
+/// All-zero sentinel marking an unconditioned escrow (no proof required).
+const NO_CONDITION: [u8; 32] = [0u8; 32];
+
+/// Canonical journal version reconstructed for verification.
+const JOURNAL_VERSION: u8 = 1;
+/// Chain tag for Solana in the journal.
+const CHAIN_SOLANA: u8 = 1;
+/// Outcome tag: execution succeeded.
+const OUTCOME_SUCCESS: u8 = 1;
+/// Execution-state tag: the release conditions were met.
+const STATE_CONDITIONS_MET: u8 = 2;
+/// Asset-kind tag: the native coin (currently the only kind this program settles).
+const ASSET_NATIVE: u8 = 0;
+/// Width of the big-endian amount field.
+const AMOUNT_WIDTH: usize = 32;
 
 #[program]
 pub mod escrow {
     use super::*;
 
-    /// Creates a new escrow, enforcing XRPL-style guards:
-    /// - At least one of `finish_after` or `cancel_after` must be set.  
-    /// - If both set, `finish_after < cancel_after`.
+    /// Creates and funds a new escrow.
+    ///
+    /// At least one of `finish_after`/`cancel_after` must be set so an escrow
+    /// always has a time-based resolution path and funds can never be locked
+    /// indefinitely. When cancellation is enabled it must open strictly after the
+    /// finish window so the recipient always holds an exclusive release window
+    /// before the sender can reclaim, making settlement deterministic. A non-zero
+    /// `condition` records the witness-free release-condition commitment that a
+    /// later finish must prove against.
     pub fn create_escrow(ctx: Context<CreateEscrow>, args: CreateEscrowArgs) -> Result<()> {
-        // Must have at least one resolution path
         require!(
             args.finish_after.is_some() || args.cancel_after.is_some(),
             EscrowError::MustSpecifyPath
         );
-        // If both set, enforce ordering
-        if let (Some(finish), Some(cancel)) = (args.finish_after, args.cancel_after) {
-            require!(finish < cancel, EscrowError::InvalidTimeOrder);
+        if let Some(cancel) = args.cancel_after {
+            require!(
+                cancel > args.finish_after.unwrap_or(0),
+                EscrowError::InvalidTimeOrder
+            );
         }
-        // Amount cannot be zero
         require!(args.amount > 0, EscrowError::InvalidAmount);
 
-        // Transfer lamports into the PDA
         let cpi_ctx = CpiContext::new(
-            ctx.accounts.system_program.to_account_info(),
+            ctx.accounts.system_program.key(),
             system_program::Transfer {
                 from: ctx.accounts.sender.to_account_info(),
                 to: ctx.accounts.escrow_account.to_account_info(),
@@ -45,15 +81,17 @@ pub mod escrow {
         system_program::transfer(cpi_ctx, args.amount)?;
 
         let escrow = &mut ctx.accounts.escrow_account;
-
         escrow.sender = ctx.accounts.sender.key();
         escrow.recipient = ctx.accounts.recipient.key();
         escrow.amount = args.amount;
+        escrow.id = args.id;
         escrow.finish_after = args.finish_after;
         escrow.cancel_after = args.cancel_after;
+        escrow.condition = args.condition;
         escrow.bump = ctx.bumps.escrow_account;
 
         emit!(EscrowEvent {
+            id: escrow.id,
             sender: escrow.sender,
             recipient: escrow.recipient,
             amount: escrow.amount,
@@ -63,51 +101,78 @@ pub mod escrow {
         Ok(())
     }
 
-    /// Releases an escrow:
-    /// - If `finish_after` is `Some(t)`, require current slot >= t.  
-    /// - If `finish_after` is `None`, allow immediate release.  
-    /// - Only callable by `recipient`.
-    pub fn finish_escrow(ctx: Context<FinishEscrow>) -> Result<()> {
+    /// Releases an escrow to its recipient.
+    ///
+    /// Callable only by the recipient and only once the finish window has opened.
+    /// For a conditioned escrow, `seal` must be a RISC Zero receipt seal whose
+    /// proof verifies, via the pinned router, against the proof journal
+    /// reconstructed from this escrow's state; the router's accounts are passed
+    /// as remaining accounts. The escrowed `amount` is transferred explicitly to
+    /// the recipient and the PDA is closed, returning its rent reserve to the
+    /// original funder.
+    pub fn finish_escrow<'info>(
+        ctx: Context<'info, FinishEscrow<'info>>,
+        seal: Vec<u8>,
+    ) -> Result<()> {
         let escrow = &ctx.accounts.escrow_account;
-        let current_slot = Clock::get()?.slot;
-
         require!(
             ctx.accounts.recipient.key() == escrow.recipient,
             EscrowError::Unauthorized
         );
-
-        if let Some(t) = escrow.finish_after {
-            require!(current_slot >= t, EscrowError::NotReady);
+        if let Some(finish_after) = escrow.finish_after {
+            require!(Clock::get()?.slot >= finish_after, EscrowError::NotReady);
         }
 
+        if escrow.condition != NO_CONDITION {
+            verify_release_proof(
+                escrow,
+                ctx.accounts.verifier_router.to_account_info(),
+                ctx.remaining_accounts,
+                seal,
+            )?;
+        }
+
+        let amount = escrow.amount;
+        let escrow_info = ctx.accounts.escrow_account.to_account_info();
+        let recipient_info = ctx.accounts.recipient.to_account_info();
+        let debited = escrow_info
+            .lamports()
+            .checked_sub(amount)
+            .ok_or(EscrowError::ArithmeticOverflow)?;
+        let credited = recipient_info
+            .lamports()
+            .checked_add(amount)
+            .ok_or(EscrowError::ArithmeticOverflow)?;
+        **escrow_info.try_borrow_mut_lamports()? = debited;
+        **recipient_info.try_borrow_mut_lamports()? = credited;
+
         emit!(EscrowEvent {
+            id: escrow.id,
             sender: escrow.sender,
             recipient: escrow.recipient,
-            amount: escrow.amount,
+            amount,
             action: EscrowState::Finished
         });
 
         Ok(())
     }
 
-    /// Cancels an escrow:
-    /// - Requires `cancel_after` to be `Some(t)`.  
-    /// - Current slot >= t.  
-    /// - Only callable by the original `sender`.
+    /// Cancels an escrow and refunds the original sender.
+    ///
+    /// Callable only by the sender, only when cancellation was enabled, and only
+    /// once the cancel window has opened. Closing the PDA returns the full
+    /// balance (escrowed amount plus rent reserve) to the sender.
     pub fn cancel_escrow(ctx: Context<CancelEscrow>) -> Result<()> {
         let escrow = &ctx.accounts.escrow_account;
-        let current_slot = Clock::get()?.slot;
-
         require!(
             ctx.accounts.sender.key() == escrow.sender,
             EscrowError::Unauthorized
         );
-        // Must have set a `cancel_after`
-        require!(escrow.cancel_after.is_some(), EscrowError::CancelNotAllowed);
-        let t = escrow.cancel_after.unwrap();
-        require!(current_slot >= t, EscrowError::NotExpired);
+        let cancel_after = escrow.cancel_after.ok_or(EscrowError::CancelNotAllowed)?;
+        require!(Clock::get()?.slot >= cancel_after, EscrowError::NotExpired);
 
         emit!(EscrowEvent {
+            id: escrow.id,
             sender: escrow.sender,
             recipient: escrow.recipient,
             amount: escrow.amount,
@@ -118,122 +183,229 @@ pub mod escrow {
     }
 }
 
-/// Escrow account data, stored in a PDA.
+/// Verifies a conditioned escrow's release proof via the pinned router.
+///
+/// The journal is reconstructed solely from on-chain state, so its digest binds
+/// the seal to this exact escrow; `seal` carries only the opaque, already
+/// Borsh-encoded receipt seal. The router CPI reverts on an invalid proof.
+fn verify_release_proof<'info>(
+    escrow: &Escrow,
+    verifier_router: AccountInfo<'info>,
+    router_accounts: &[AccountInfo<'info>],
+    seal: Vec<u8>,
+) -> Result<()> {
+    let journal = reconstruct_journal(escrow);
+    let journal_digest: [u8; 32] = Sha256::digest(&journal).into();
+
+    // Anchor instruction discriminator for the router's `verify`, derived here so
+    // it cannot drift from the upstream interface: sha256("global:verify")[..8],
+    // followed by the Borsh-encoded (seal, image_id, journal_digest) arguments.
+    let discriminator = Sha256::digest(b"global:verify");
+    let data: Vec<u8> = discriminator[..8]
+        .iter()
+        .chain(seal.iter())
+        .chain(IMAGE_ID.iter())
+        .chain(journal_digest.iter())
+        .copied()
+        .collect();
+
+    let metas: Vec<AccountMeta> = router_accounts
+        .iter()
+        .map(|account| AccountMeta {
+            pubkey: *account.key,
+            is_signer: account.is_signer,
+            is_writable: account.is_writable,
+        })
+        .collect();
+
+    let instruction = Instruction {
+        program_id: VERIFIER_ROUTER,
+        accounts: metas,
+        data,
+    };
+
+    let infos: Vec<AccountInfo<'info>> = router_accounts
+        .iter()
+        .cloned()
+        .chain(core::iter::once(verifier_router))
+        .collect();
+
+    invoke(&instruction, &infos).map_err(|_| EscrowError::ProofVerificationFailed)?;
+    Ok(())
+}
+
+/// Reconstructs the binding journal for a met, native-coin escrow.
+///
+/// The layout matches the guest's public commitment exactly (version 1, Solana,
+/// success, conditions-met, length-prefixed 32-byte identities, big-endian
+/// amount), so the digest equals what the guest committed for this settlement.
+/// Exposed so the binding can be checked against the guest's encoder off-chain.
+pub fn reconstruct_journal(escrow: &Escrow) -> Vec<u8> {
+    let mut amount = [0u8; AMOUNT_WIDTH];
+    amount[AMOUNT_WIDTH - 8..].copy_from_slice(&escrow.amount.to_be_bytes());
+
+    // The only length-prefixed fields are 32-byte public keys and the empty
+    // native-token field, so every `u16` prefix is a compile-time constant
+    // rather than a run-time cast.
+    const PUBKEY_LEN: [u8; 2] = 32u16.to_be_bytes();
+    const EMPTY_LEN: [u8; 2] = 0u16.to_be_bytes();
+
+    [
+        JOURNAL_VERSION,
+        CHAIN_SOLANA,
+        OUTCOME_SUCCESS,
+        STATE_CONDITIONS_MET,
+    ]
+    .into_iter()
+    .chain(PUBKEY_LEN)
+    .chain(crate::ID.to_bytes())
+    .chain(escrow.id.to_be_bytes())
+    .chain(PUBKEY_LEN)
+    .chain(escrow.sender.to_bytes())
+    .chain(PUBKEY_LEN)
+    .chain(escrow.recipient.to_bytes())
+    .chain([ASSET_NATIVE])
+    .chain(EMPTY_LEN)
+    .chain(amount)
+    .chain(escrow.condition)
+    .collect()
+}
+
+/// Escrow account data, stored in a per-escrow PDA.
 #[account]
+#[derive(InitSpace)]
 pub struct Escrow {
-    /// Account that initialized the escrow
+    /// Account that funded the escrow.
     pub sender: Pubkey,
-    /// Intended beneficiary of the escrowed funds
+    /// Intended beneficiary of the escrowed funds.
     pub recipient: Pubkey,
-    /// Amount of lamports locked
+    /// Amount of lamports locked, exclusive of the rent reserve.
     pub amount: u64,
-    /// Optional slot after which funds can be released
+    /// Caller-supplied unique identifier; a PDA seed and the journal binding.
+    pub id: u64,
+    /// Slot after which release is allowed (`None` allows immediate release).
     pub finish_after: Option<u64>,
-    /// Optional slot after which sender can reclaim funds
+    /// Slot after which the sender may reclaim (`None` disables cancellation).
     pub cancel_after: Option<u64>,
+    /// Witness-free release-condition commitment (all-zero when unconditioned).
+    pub condition: [u8; 32],
     /// PDA bump seed for address validation.
     pub bump: u8,
 }
 
-/// Context for `create_escrow` transaction.
+/// Context for `create_escrow`.
 #[derive(Accounts)]
 #[instruction(args: CreateEscrowArgs)]
 pub struct CreateEscrow<'info> {
-    /// Sender funding the escrow
+    /// Sender funding the escrow.
     #[account(mut)]
     pub sender: Signer<'info>,
 
-    /// Recipient of the escrow; must differ from sender to
-    /// prevent self-escrow.
+    /// Recipient of the escrow; must differ from the sender.
     ///
-    /// CHECK: we enforce correctness via PDA seeds.
-    #[account(
-        constraint = recipient.key() != sender.key() @ EscrowError::InvalidRecipient
-    )]
+    /// CHECK: only its key is used, enforced via PDA seeds and the constraint.
+    #[account(constraint = recipient.key() != sender.key() @ EscrowError::InvalidRecipient)]
     pub recipient: UncheckedAccount<'info>,
 
-    /// PDA holding the escrow.
+    /// Per-escrow PDA, unique to `(sender, recipient, id)`.
     #[account(
         init,
         payer = sender,
-        space = 8  + std::mem::size_of::<Escrow>(),
-        seeds = [ESCROW, sender.key().as_ref(), recipient.key().as_ref()],
+        space = 8 + Escrow::INIT_SPACE,
+        seeds = [ESCROW, sender.key().as_ref(), recipient.key().as_ref(), &args.id.to_le_bytes()],
         bump
     )]
     pub escrow_account: Account<'info, Escrow>,
 
-    /// System program for lamport transfers
+    /// System program for the funding transfer.
     pub system_program: Program<'info, System>,
 }
 
-/// Arguments for `create_escrow` transaction.
+/// Arguments for `create_escrow`.
 #[derive(AnchorSerialize, AnchorDeserialize)]
 pub struct CreateEscrowArgs {
-    /// Amount to escrow.
+    /// Caller-supplied unique id; reusing an id that still has a live escrow for
+    /// the same `(sender, recipient)` pair fails account initialization.
+    pub id: u64,
+    /// Amount of lamports to lock.
     pub amount: u64,
-    /// Optional slot after which "release" is allowed.
-    /// Must be `None` or less than `cancel_after` if both are set.
+    /// Slot after which release is allowed (`None` allows immediate release).
     pub finish_after: Option<u64>,
-    /// Optional slot after which "cancel" is allowed.
-    /// Must be `None` or greater than `finish_after` if both are set.
+    /// Slot after which the sender may reclaim (`None` disables cancellation).
     pub cancel_after: Option<u64>,
+    /// Witness-free release-condition commitment (all-zero for unconditioned).
+    pub condition: [u8; 32],
 }
 
 /// Context for `finish_escrow`.
 #[derive(Accounts)]
 pub struct FinishEscrow<'info> {
-    /// Recipient claiming the funds
+    /// Recipient claiming the funds.
     #[account(mut)]
     pub recipient: Signer<'info>,
 
-    /// PDA holding the escrow, closed to recipient on success
+    /// Original funder, refunded the rent reserve when the PDA is closed.
+    ///
+    /// CHECK: constrained to the escrow's recorded sender.
+    #[account(mut, address = escrow_account.sender)]
+    pub sender: UncheckedAccount<'info>,
+
+    /// Per-escrow PDA, closed to the original funder on success.
     #[account(
         mut,
-        seeds = [ESCROW, escrow_account.sender.as_ref(), recipient.key().as_ref()],
+        seeds = [ESCROW, escrow_account.sender.as_ref(), recipient.key().as_ref(), &escrow_account.id.to_le_bytes()],
         bump = escrow_account.bump,
-        close = recipient
+        close = sender
     )]
     pub escrow_account: Account<'info, Escrow>,
+
+    /// The pinned RISC Zero verifier router (used only for conditioned escrows).
+    ///
+    /// CHECK: constrained to the compile-time-pinned router address.
+    #[account(address = VERIFIER_ROUTER)]
+    pub verifier_router: UncheckedAccount<'info>,
 }
 
-/// Context for `cancel_escrow` transaction.
+/// Context for `cancel_escrow`.
 #[derive(Accounts)]
 pub struct CancelEscrow<'info> {
-    /// Original initializer reclaiming funds
+    /// Original funder reclaiming the escrow.
     #[account(mut)]
     pub sender: Signer<'info>,
 
-    /// PDA holding the escrow, closed back to sender on success.
+    /// Per-escrow PDA, closed back to the sender on success.
     #[account(
         mut,
-        seeds = [ESCROW, sender.key().as_ref(), escrow_account.recipient.as_ref()],
+        seeds = [ESCROW, sender.key().as_ref(), escrow_account.recipient.as_ref(), &escrow_account.id.to_le_bytes()],
         bump = escrow_account.bump,
         close = sender
     )]
     pub escrow_account: Account<'info, Escrow>,
 }
 
-/// Events emitted by the escrow program.
+/// Events emitted across the escrow lifecycle.
 #[event]
 pub struct EscrowEvent {
-    /// Original depositor
+    /// Caller-supplied escrow id.
+    pub id: u64,
+    /// Original funder.
     pub sender: Pubkey,
-    /// Intended beneficiary
+    /// Intended beneficiary.
     pub recipient: Pubkey,
-    /// Escrow amount; must be nonzero
+    /// Escrowed amount in lamports.
     pub amount: u64,
-    /// What stage of the escrow lifecycle was just executed
+    /// Lifecycle stage just executed.
     pub action: EscrowState,
 }
 
 /// Escrow lifecycle actions.
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub enum EscrowState {
-    /// Escrow initialized, PDA funded, funds locked.
+    /// Escrow initialized and funded.
     Created,
-    /// Escrow released to intended beneficiary (`recipient`).
+    /// Escrow released to the recipient.
     Finished,
-    /// Escrow cancelled and original `sender` refunded.
+    /// Escrow cancelled and the sender refunded.
     Cancelled,
 }
 
@@ -244,31 +416,39 @@ pub enum EscrowError {
     #[msg("Amount must be greater than zero.")]
     InvalidAmount,
 
-    /// Both `finish_after` or `cancel_after` are missing.
+    /// Neither `finish_after` nor `cancel_after` was provided.
     #[msg("Must specify at least one of finish_after or cancel_after.")]
     MustSpecifyPath,
 
-    /// Specified slot for `finish_after` exceeds that of `cancel_after`.
-    #[msg("finish_after must be less than cancel_after.")]
+    /// Cancellation does not open strictly after the finish window.
+    #[msg("cancel_after must be greater than finish_after.")]
     InvalidTimeOrder,
 
-    /// Self-escrow is not allowed.
+    /// Sender and recipient are the same account.
     #[msg("Sender and recipient must differ.")]
     InvalidRecipient,
 
-    /// Only callable by designated `Signer`.
+    /// Caller is not the account authorized for this action.
     #[msg("Unauthorized caller.")]
     Unauthorized,
 
-    /// `finish_after` not yet reached.
+    /// The finish window has not yet opened.
     #[msg("Too early to finish.")]
     NotReady,
 
-    /// `cancel_after` not specified; cannot cancel escrow.
+    /// Cancellation was not enabled for this escrow.
     #[msg("Cancel not allowed (no cancel_after).")]
     CancelNotAllowed,
 
-    /// `cancel_after` not yet reached.
+    /// The cancel window has not yet opened.
     #[msg("Too early to cancel.")]
     NotExpired,
+
+    /// The release proof failed on-chain verification.
+    #[msg("Release proof verification failed.")]
+    ProofVerificationFailed,
+
+    /// A lamport balance update overflowed.
+    #[msg("Lamport arithmetic overflow.")]
+    ArithmeticOverflow,
 }
