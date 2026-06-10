@@ -20,8 +20,8 @@ use zescrow_core::interface::ChainConfig;
 use zescrow_core::{EscrowMetadata, EscrowParams, ExecutionState};
 
 use super::Agent;
-use crate::Result;
 use crate::error::ClientError;
+use crate::{ReleaseProof, Result};
 
 // Instruction names for logging.
 const CREATE_ESCROW: &str = "create_escrow";
@@ -233,21 +233,28 @@ impl SolanaAgent {
             .escrow_id
             .ok_or_else(|| ClientError::solana(operation, "escrow id missing from metadata"))
     }
+
+    /// Frames a release proof's seal for the verifier-router CPI.
+    ///
+    /// The program splices these bytes straight into the router's `verify`
+    /// instruction data, which Borsh-decodes its `proof: Vec<u8>` argument, so
+    /// the seal must already carry its four-byte little-endian length prefix.
+    /// The journal is reconstructed on-chain, so only the seal travels with the
+    /// call.
+    fn router_seal(proof: ReleaseProof) -> Result<Vec<u8>> {
+        let len = u32::try_from(proof.seal.len())
+            .map_err(|_| ClientError::solana(FINISH_ESCROW, "seal length exceeds u32"))?;
+        Ok(len.to_le_bytes().into_iter().chain(proof.seal).collect())
+    }
 }
 
 #[async_trait::async_trait]
 impl Agent for SolanaAgent {
-    async fn create_escrow(&self, params: &EscrowParams) -> Result<EscrowMetadata> {
-        // Conditioned settlement must carry the receipt seal to the on-chain
-        // proof gate, which the client does not yet generate; until then it
-        // creates only time-lock-only escrows rather than an unprovable one.
-        if params.has_conditions {
-            return Err(ClientError::solana(
-                CREATE_ESCROW,
-                "conditioned Solana escrows are not yet supported by the client",
-            ));
-        }
-
+    async fn create_escrow(
+        &self,
+        params: &EscrowParams,
+        condition: Option<[u8; 32]>,
+    ) -> Result<EscrowMetadata> {
         let sender = Self::parse_pubkey(&params.sender)?;
         Self::validate_keypair(&self.sender_keypair, &sender, "sender")?;
 
@@ -269,7 +276,7 @@ impl Agent for SolanaAgent {
             amount,
             finish_after: params.finish_after,
             cancel_after: params.cancel_after,
-            condition: [0u8; 32],
+            condition: condition.unwrap_or_default(),
         };
 
         let instruction = self.build_create_instruction(sender, recipient, escrow_pda, args);
@@ -285,7 +292,11 @@ impl Agent for SolanaAgent {
         })
     }
 
-    async fn finish_escrow(&self, metadata: &EscrowMetadata) -> Result<()> {
+    async fn finish_escrow(
+        &self,
+        metadata: &EscrowMetadata,
+        proof: Option<ReleaseProof>,
+    ) -> Result<()> {
         let sender = Self::parse_pubkey(&metadata.params.sender)?;
         let recipient = Self::parse_pubkey(&metadata.params.recipient)?;
         let id = Self::escrow_id(metadata, FINISH_ESCROW)?;
@@ -296,7 +307,11 @@ impl Agent for SolanaAgent {
         let escrow_pda = self.derive_escrow_pda(&sender, &recipient, id);
         debug!(%escrow_pda, "Using escrow PDA");
 
-        let instruction = self.build_finish_instruction(recipient, sender, escrow_pda, Vec::new());
+        let seal = proof
+            .map(Self::router_seal)
+            .transpose()?
+            .unwrap_or_default();
+        let instruction = self.build_finish_instruction(recipient, sender, escrow_pda, seal);
         debug!("{} instruction built", FINISH_ESCROW);
 
         self.submit_transaction(instruction, &recipient, &[recipient_keypair], FINISH_ESCROW)?;
@@ -320,5 +335,33 @@ impl Agent for SolanaAgent {
         info!("{} transaction confirmed", CANCEL_ESCROW);
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // The framing must match what the program splices into the router CPI: a
+    // four-byte little-endian length prefix followed by the seal bytes (the same
+    // shape the on-chain test harness encodes for the mock verifier).
+    #[test]
+    fn router_seal_frames_with_le_length_prefix() {
+        let proof = ReleaseProof {
+            seal: vec![0xab, 0xcd],
+            journal: Vec::new(),
+        };
+        assert_eq!(
+            SolanaAgent::router_seal(proof).unwrap(),
+            vec![2, 0, 0, 0, 0xab, 0xcd]
+        );
+    }
+
+    #[test]
+    fn router_seal_of_empty_is_just_the_length() {
+        assert_eq!(
+            SolanaAgent::router_seal(ReleaseProof::default()).unwrap(),
+            vec![0, 0, 0, 0]
+        );
     }
 }

@@ -15,15 +15,14 @@ prover = ["dep:zescrow-prover"]
 [dependencies]
 anyhow = { workspace = true }
 async-trait = "0.1"
+alloy = { version = "2.0.5", features = ["signer-local"] }
 anchor-client = "1.0.2"
 anchor-lang = "1.0.2"
 bincode = { workspace = true }
 clap = { version = "4", features = ["derive"] }
 dotenvy = "0.15"
-ethers = { version = "2", features = ["rustls"] }
 hex = { workspace = true }
 num-traits = { workspace = true }
-rustc-hex = "2"
 serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
@@ -36,4 +35,6 @@ tracing-subscriber = { version = "0.3.22", features = ["env-filter", "fmt"] }
 url = { version = "2.5", features = ["std"] }
 zescrow-core = { workspace = true, features = ["bincode", "json"] }
 zescrow-prover = { workspace = true, optional = true }
-escrow = { path = "../agent/solana/escrow/programs/escrow", features = ["no-entrypoint"] }
+escrow = { path = "../agent/solana/escrow/programs/escrow", features = [
+    "no-entrypoint",
+] }

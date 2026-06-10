@@ -6,7 +6,7 @@ use sha2::{Digest, Sha256};
 use tracing::info;
 #[cfg(feature = "prover")]
 use zescrow_client::prover;
-use zescrow_client::{Recipient, ZescrowClient};
+use zescrow_client::{Recipient, ReleaseProof, ZescrowClient};
 use zescrow_core::interface::{
     ESCROW_CONDITIONS_PATH, ESCROW_METADATA_PATH, ESCROW_PARAMS_PATH, load_escrow_data,
     save_escrow_data,
@@ -174,7 +174,8 @@ async fn execute(command: Commands) -> anyhow::Result<()> {
             info!("Building ZescrowClient");
             let client = ZescrowClient::builder(&params.chain_config).build().await?;
             info!("Creating escrow on-chain");
-            let metadata = client.create_escrow(&params).await?;
+            let condition = release_condition(&params)?;
+            let metadata = client.create_escrow(&params, condition).await?;
             info!("Escrow created!");
 
             info!("Saving metadata to {}", ESCROW_METADATA_PATH);
@@ -191,20 +192,12 @@ async fn execute(command: Commands) -> anyhow::Result<()> {
                 .build()
                 .await?;
 
-            // Invoke the prover if escrow has cryptographic conditions
-            if metadata.params.has_conditions {
-                #[cfg(feature = "prover")]
-                prover::run()?;
-
-                #[cfg(not(feature = "prover"))]
-                return Err(anyhow!(
-                    "escrow has conditions but the 'prover' feature is disabled; \
-                     rebuild with `--features prover` to enable ZK proof generation"
-                ));
-            }
+            // A conditioned escrow carries a verifying receipt to the on-chain
+            // proof gate; an unconditioned one releases on the time-lock alone.
+            let proof = release_proof(&metadata)?;
 
             info!("Finishing escrow");
-            client.finish_escrow(&metadata).await?;
+            client.finish_escrow(&metadata, proof).await?;
             info!("Escrow completed and released successfully");
         }
 
@@ -228,6 +221,47 @@ async fn execute(command: Commands) -> anyhow::Result<()> {
         }
     }
     Ok(())
+}
+
+/// Computes the on-chain release-condition commitment for a conditioned escrow.
+///
+/// Reads the condition from [`ESCROW_CONDITIONS_PATH`] and returns its
+/// commitment, or `None` for an unconditioned escrow. The commitment matches
+/// the one the guest commits, so it binds the later proof to this escrow.
+fn release_condition(params: &EscrowParams) -> anyhow::Result<Option<[u8; 32]>> {
+    if !params.has_conditions {
+        return Ok(None);
+    }
+    info!("Loading release condition from {}", ESCROW_CONDITIONS_PATH);
+    let condition: Condition = load_escrow_data(ESCROW_CONDITIONS_PATH)?;
+    Ok(Some(condition.commitment()))
+}
+
+/// Generates the verifying release proof for a conditioned escrow.
+///
+/// Returns `None` for an unconditioned escrow. A conditioned escrow requires the
+/// `prover` feature; without it, finishing is refused rather than attempted
+/// against the on-chain proof gate without a receipt.
+fn release_proof(metadata: &EscrowMetadata) -> anyhow::Result<Option<ReleaseProof>> {
+    if !metadata.params.has_conditions {
+        return Ok(None);
+    }
+
+    #[cfg(feature = "prover")]
+    {
+        info!("Generating release proof");
+        let proof = prover::run()?;
+        Ok(Some(ReleaseProof {
+            seal: proof.encoded_seal()?,
+            journal: proof.journal_bytes().to_vec(),
+        }))
+    }
+
+    #[cfg(not(feature = "prover"))]
+    Err(anyhow!(
+        "escrow has conditions but the 'prover' feature is disabled; \
+         rebuild with `--features prover` to enable ZK proof generation"
+    ))
 }
 
 fn handle_generate_cmd(opts: GenerateOpts) -> anyhow::Result<()> {

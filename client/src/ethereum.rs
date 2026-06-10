@@ -4,60 +4,41 @@
 //! smart contract. Supports creating, finishing, and canceling escrows
 //! on Ethereum and EVM-compatible chains.
 
-use std::convert::TryFrom;
-use std::str::FromStr;
-use std::sync::Arc;
-
-use ethers::abi::Abi;
-use ethers::contract::{Contract, EthEvent};
-use ethers::middleware::SignerMiddleware;
-use ethers::providers::{Http, Middleware, Provider};
-use ethers::signers::{LocalWallet, Signer};
-use ethers::types::{Address, H256, U256};
-use serde_json::Value;
+use alloy::network::EthereumWallet;
+use alloy::primitives::{Address, B256, Bytes, U256};
+use alloy::providers::{DynProvider, Provider, ProviderBuilder};
+use alloy::rpc::types::TransactionReceipt;
+use alloy::signers::local::PrivateKeySigner;
+use alloy::sol;
 use tracing::{debug, info};
+use url::Url;
 use zescrow_core::{ChainConfig, EscrowMetadata, EscrowParams, ExecutionState};
 
 use crate::error::ClientError;
-use crate::{Agent, Result};
+use crate::{Agent, ReleaseProof, Result};
 
-/// Escrow contract ABI embedded at compile time.
-const ESCROW_JSON: &str = include_str!("../abi/Escrow.json");
+// Operation labels for logging and error context.
+const CREATE: &str = "createEscrow";
+const FINISH: &str = "finishEscrow";
+const CANCEL: &str = "cancelEscrow";
 
-// Contract method names.
-const CREATE_ESCROW: &str = "createEscrow";
-const FINISH_ESCROW: &str = "finishEscrow";
-const CANCEL_ESCROW: &str = "cancelEscrow";
-
-/// The `EscrowCreated` event emitted when a new escrow is created.
-#[derive(Clone, Debug, EthEvent)]
-#[ethevent(
-    name = "EscrowCreated",
-    abi = "EscrowCreated(uint256,address,address,uint256,uint256,uint256)"
-)]
-struct EscrowCreatedEvent {
-    #[ethevent(indexed)]
-    escrow_id: U256,
-    #[ethevent(indexed)]
-    sender: Address,
-    #[ethevent(indexed)]
-    recipient: Address,
-    amount: U256,
-    finish_after: U256,
-    cancel_after: U256,
+sol! {
+    #[sol(rpc)]
+    Escrow,
+    "abi/Escrow.json"
 }
 
 /// Ethereum blockchain agent for escrow operations.
 ///
-/// Manages interactions with the Zescrow Ethereum smart contract,
-/// including transaction signing and event parsing.
+/// Holds a sender-signing provider for create/cancel and an optional
+/// recipient-signing provider for finish.
 pub struct EthereumAgent {
-    /// Ethereum JSON-RPC provider.
-    pub provider: Provider<Http>,
-    /// Contract instance signed by the sender.
-    escrow_as_sender: Contract<SignerMiddleware<Provider<Http>, LocalWallet>>,
-    /// Contract instance signed by the recipient (optional, for finish operations).
-    escrow_as_recipient: Option<Contract<SignerMiddleware<Provider<Http>, LocalWallet>>>,
+    /// Deployed escrow contract address.
+    escrow_address: Address,
+    /// Provider signing as the escrow sender.
+    sender: DynProvider,
+    /// Provider signing as the recipient, for finish operations.
+    recipient: Option<DynProvider>,
 }
 
 impl EthereumAgent {
@@ -65,16 +46,15 @@ impl EthereumAgent {
     ///
     /// # Arguments
     ///
-    /// * `config` - Chain configuration containing RPC URL and sender key
-    /// * `recipient` - Optional recipient wallet for finish operations
+    /// * `config` - Chain configuration containing the RPC URL, sender key, and
+    ///   contract address
+    /// * `recipient_key` - Optional recipient private key for finish operations
     ///
     /// # Errors
     ///
-    /// Returns an error if:
-    /// - RPC connection fails
-    /// - Contract ABI parsing fails
-    /// - Wallet parsing fails
-    pub async fn new(config: &ChainConfig, recipient: Option<LocalWallet>) -> Result<Self> {
+    /// Returns an error if the RPC URL, contract address, or a signing key
+    /// cannot be parsed, or if the initial chain-id query fails.
+    pub async fn new(config: &ChainConfig, recipient_key: Option<String>) -> Result<Self> {
         let ChainConfig {
             rpc_url,
             sender_private_id,
@@ -82,137 +62,121 @@ impl EthereumAgent {
             ..
         } = config;
 
-        let provider = Provider::<Http>::try_from(rpc_url)?;
-        let chain_id = provider
-            .get_chainid()
+        let escrow_address = Self::parse_address(agent_id)?;
+        let url: Url = rpc_url.parse()?;
+
+        let sender = Self::provider(sender_private_id, url.clone())?;
+        let chain_id = sender
+            .get_chain_id()
             .await
-            .map_err(|e| ClientError::ethereum("get_chainid", e))?
-            .as_u64();
-        debug!(%chain_id, "Connected to Ethereum");
+            .map_err(|e| ClientError::ethereum("get_chain_id", e))?;
+        debug!(chain_id, "Connected to Ethereum");
 
-        let abi = Self::load_contract_abi()?;
-        let escrow_addr = Address::from_str(agent_id)?;
-
-        let escrow_as_sender = Self::create_contract_instance(
-            &provider,
-            escrow_addr,
-            abi.clone(),
-            sender_private_id,
-            chain_id,
-        )?;
-
-        let escrow_as_recipient = recipient.map(|wallet| {
-            let signer = Arc::new(SignerMiddleware::new(
-                provider.clone(),
-                wallet.with_chain_id(chain_id),
-            ));
-            Contract::new(escrow_addr, abi, signer)
-        });
+        let recipient = recipient_key
+            .map(|key| Self::provider(&key, url))
+            .transpose()?;
 
         Ok(Self {
-            provider,
-            escrow_as_sender,
-            escrow_as_recipient,
+            escrow_address,
+            sender,
+            recipient,
         })
     }
 
-    /// Loads and parses the contract ABI from embedded JSON.
-    fn load_contract_abi() -> Result<Abi> {
-        let artifact: Value = serde_json::from_str(ESCROW_JSON)
-            .map_err(|e| ClientError::ethereum("parse_artifact", e))?;
-
-        let abi_json = artifact
-            .get("abi")
-            .ok_or_else(|| ClientError::ethereum("load_abi", "missing ABI field in artifact"))?
-            .to_string();
-
-        serde_json::from_str::<Abi>(&abi_json).map_err(|e| ClientError::ethereum("parse_abi", e))
+    /// Builds a type-erased provider that signs with `private_key`, applying the
+    /// recommended nonce, gas, and chain-id fillers.
+    fn provider(private_key: &str, url: Url) -> Result<DynProvider> {
+        let signer: PrivateKeySigner = private_key
+            .parse()
+            .map_err(|e| ClientError::ethereum("parse_key", e))?;
+        let provider = ProviderBuilder::new()
+            .wallet(EthereumWallet::from(signer))
+            .connect_http(url);
+        Ok(provider.erased())
     }
 
-    /// Creates a contract instance with a signing middleware.
-    fn create_contract_instance(
-        provider: &Provider<Http>,
-        address: Address,
-        abi: Abi,
-        private_key: &str,
-        chain_id: u64,
-    ) -> Result<Contract<SignerMiddleware<Provider<Http>, LocalWallet>>> {
-        let wallet = private_key.parse::<LocalWallet>()?.with_chain_id(chain_id);
-        let signer = Arc::new(SignerMiddleware::new(provider.clone(), wallet));
-        Ok(Contract::new(address, abi, signer))
+    /// Parses a 20-byte EVM address from a hex string, tolerating a `0x` prefix
+    /// and the unprefixed lowercase form produced by `Party`'s display.
+    fn parse_address(s: &str) -> Result<Address> {
+        let hex_str = s
+            .strip_prefix("0x")
+            .or_else(|| s.strip_prefix("0X"))
+            .unwrap_or(s);
+        let bytes = hex::decode(hex_str).map_err(|e| ClientError::ethereum("parse_address", e))?;
+        let array: [u8; 20] = bytes
+            .as_slice()
+            .try_into()
+            .map_err(|_| ClientError::ethereum("parse_address", "expected a 20-byte address"))?;
+        Ok(Address::from(array))
     }
 
-    /// Extracts the escrow ID from transaction events.
-    async fn extract_escrow_id(&self, block_hash: H256) -> Result<u64> {
-        let events = self
-            .escrow_as_sender
-            .event::<EscrowCreatedEvent>()
-            .at_block_hash(block_hash)
-            .query()
-            .await
-            .map_err(|e| ClientError::ethereum("query_events", e))?;
+    /// Converts the escrow amount to a `U256`, failing if it is not a
+    /// representable unsigned integer.
+    fn amount(params: &EscrowParams) -> Result<U256> {
+        params
+            .asset
+            .amount()
+            .to_string()
+            .parse::<U256>()
+            .map_err(|_| ClientError::AssetOverflow)
+    }
 
-        let event = events
-            .into_iter()
-            .next()
+    /// Reads the escrow id recorded at creation, required to address the escrow.
+    fn escrow_id(metadata: &EscrowMetadata, operation: &'static str) -> Result<u64> {
+        metadata
+            .escrow_id
+            .ok_or_else(|| ClientError::ethereum(operation, "missing escrow_id"))
+    }
+
+    /// Extracts the new escrow id from the `EscrowCreated` log in a receipt.
+    fn created_id(receipt: &TransactionReceipt) -> Result<u64> {
+        let id = receipt
+            .inner
+            .logs()
+            .iter()
+            .find_map(|log| log.log_decode::<Escrow::EscrowCreated>().ok())
+            .map(|log| log.inner.data.escrowId)
             .ok_or_else(|| ClientError::MissingEvent("EscrowCreated event not found".into()))?;
 
-        let escrow_id = event.escrow_id;
-        if escrow_id.is_zero() {
-            return Err(ClientError::MissingEvent("escrow_id is zero".into()));
-        }
-
-        Ok(escrow_id.as_u64())
+        u64::try_from(id).map_err(|_| ClientError::MissingEvent("escrow_id exceeds u64".into()))
     }
 
-    /// Returns the recipient contract instance, or an error if not configured.
-    fn recipient_contract(
-        &self,
-    ) -> Result<&Contract<SignerMiddleware<Provider<Http>, LocalWallet>>> {
-        self.escrow_as_recipient
-            .as_ref()
-            .ok_or_else(|| ClientError::ethereum(FINISH_ESCROW, "recipient wallet not configured"))
+    /// Returns the recipient-signing provider, or an error if not configured.
+    fn recipient_provider(&self) -> Result<DynProvider> {
+        self.recipient
+            .clone()
+            .ok_or_else(|| ClientError::ethereum(FINISH, "recipient wallet not configured"))
     }
 }
 
 #[async_trait::async_trait]
 impl Agent for EthereumAgent {
-    async fn create_escrow(&self, params: &EscrowParams) -> Result<EscrowMetadata> {
-        let recipient = Address::from_str(&params.recipient.to_string())?;
-        let finish_after = params.finish_after.unwrap_or_default();
-        let cancel_after = params.cancel_after.unwrap_or_default();
-        let amount = U256::from_dec_str(&params.asset.amount().to_string())
-            .map_err(|_| ClientError::AssetOverflow)?;
+    async fn create_escrow(
+        &self,
+        params: &EscrowParams,
+        condition: Option<[u8; 32]>,
+    ) -> Result<EscrowMetadata> {
+        let recipient = Self::parse_address(&params.recipient.to_string())?;
+        let finish_after = U256::from(params.finish_after.unwrap_or_default());
+        let cancel_after = U256::from(params.cancel_after.unwrap_or_default());
+        let amount = Self::amount(params)?;
+        let condition_id = B256::from(condition.unwrap_or_default());
 
-        info!(
-            "Sending {} transaction with amount {}",
-            CREATE_ESCROW, amount
-        );
+        info!(%amount, "Sending {CREATE} transaction");
 
-        let call = self
-            .escrow_as_sender
-            .method::<_, H256>(CREATE_ESCROW, (recipient, finish_after, cancel_after))
-            .map_err(|e| ClientError::ethereum(CREATE_ESCROW, e))?
-            .value(amount);
-
-        let pending_tx = call
+        let contract = Escrow::new(self.escrow_address, self.sender.clone());
+        let receipt = contract
+            .createEscrow(recipient, finish_after, cancel_after, condition_id)
+            .value(amount)
             .send()
             .await
-            .map_err(|e| ClientError::ethereum(CREATE_ESCROW, e))?;
-
-        let receipt = pending_tx
+            .map_err(|e| ClientError::ethereum(CREATE, e))?
+            .get_receipt()
             .await
-            .map_err(|e| ClientError::ethereum(CREATE_ESCROW, e))?
-            .ok_or_else(|| ClientError::tx_dropped("createEscrow transaction not confirmed"))?;
+            .map_err(|e| ClientError::ethereum(CREATE, e))?;
 
-        info!(tx_hash = ?receipt.transaction_hash, "Transaction mined");
-
-        let block_hash = receipt
-            .block_hash
-            .ok_or_else(|| ClientError::MissingEvent("no block hash in receipt".into()))?;
-
-        let escrow_id = self.extract_escrow_id(block_hash).await?;
-        info!("{} confirmed for escrow ID {}", CREATE_ESCROW, escrow_id);
+        let escrow_id = Self::created_id(&receipt)?;
+        info!(escrow_id, "{CREATE} confirmed");
 
         Ok(EscrowMetadata {
             params: params.clone(),
@@ -221,45 +185,76 @@ impl Agent for EthereumAgent {
         })
     }
 
-    async fn finish_escrow(&self, metadata: &EscrowMetadata) -> Result<()> {
-        let id = metadata
-            .escrow_id
-            .ok_or_else(|| ClientError::ethereum(FINISH_ESCROW, "missing escrow_id"))?;
+    async fn finish_escrow(
+        &self,
+        metadata: &EscrowMetadata,
+        proof: Option<ReleaseProof>,
+    ) -> Result<()> {
+        let id = Self::escrow_id(metadata, FINISH)?;
+        let contract = Escrow::new(self.escrow_address, self.recipient_provider()?);
 
-        let contract = self.recipient_contract()?;
+        // An unconditioned escrow submits empty seal/journal; the contract
+        // ignores them and releases on the time-lock alone.
+        let (seal, journal) = proof
+            .map(|p| (Bytes::from(p.seal), Bytes::from(p.journal)))
+            .unwrap_or_default();
 
-        info!("Sending {} transaction for escrow ID {}", FINISH_ESCROW, id);
-
+        info!(id, "Sending {FINISH} transaction");
         contract
-            .method::<_, ()>(FINISH_ESCROW, U256::from(id))
-            .map_err(|e| ClientError::ethereum(FINISH_ESCROW, e))?
+            .finishEscrow(U256::from(id), seal, journal)
             .send()
             .await
-            .map_err(|e| ClientError::ethereum(FINISH_ESCROW, e))?
+            .map_err(|e| ClientError::ethereum(FINISH, e))?
+            .get_receipt()
             .await
-            .map_err(|e| ClientError::ethereum(FINISH_ESCROW, e))?;
+            .map_err(|e| ClientError::ethereum(FINISH, e))?;
 
-        info!("{} confirmed for escrow ID {}", FINISH_ESCROW, id);
+        info!(id, "{FINISH} confirmed");
         Ok(())
     }
 
     async fn cancel_escrow(&self, metadata: &EscrowMetadata) -> Result<()> {
-        let id = metadata
-            .escrow_id
-            .ok_or_else(|| ClientError::ethereum(CANCEL_ESCROW, "missing escrow_id"))?;
+        let id = Self::escrow_id(metadata, CANCEL)?;
+        let contract = Escrow::new(self.escrow_address, self.sender.clone());
 
-        info!("Sending {} transaction for escrow ID {}", CANCEL_ESCROW, id);
-
-        self.escrow_as_sender
-            .method::<_, ()>(CANCEL_ESCROW, U256::from(id))
-            .map_err(|e| ClientError::ethereum(CANCEL_ESCROW, e))?
+        info!(id, "Sending {CANCEL} transaction");
+        contract
+            .cancelEscrow(U256::from(id))
             .send()
             .await
-            .map_err(|e| ClientError::ethereum(CANCEL_ESCROW, e))?
+            .map_err(|e| ClientError::ethereum(CANCEL, e))?
+            .get_receipt()
             .await
-            .map_err(|e| ClientError::ethereum(CANCEL_ESCROW, e))?;
+            .map_err(|e| ClientError::ethereum(CANCEL, e))?;
 
-        info!("{} confirmed for escrow ID {}", CANCEL_ESCROW, id);
+        info!(id, "{CANCEL} confirmed");
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // A checksummed address and the lowercase, unprefixed form `Party`'s display
+    // produces must resolve to the same 20-byte address.
+    #[test]
+    fn parse_address_ignores_case_and_prefix() {
+        let checksummed =
+            EthereumAgent::parse_address("0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045");
+        let bare = EthereumAgent::parse_address("d8da6bf26964af9d7eed9e03e53415d37aa96045");
+        assert_eq!(checksummed.unwrap(), bare.unwrap());
+    }
+
+    #[test]
+    fn parse_address_rejects_wrong_length() {
+        assert!(EthereumAgent::parse_address("0xdeadbeef").is_err());
+    }
+
+    #[test]
+    fn parse_address_rejects_non_hex() {
+        assert!(
+            EthereumAgent::parse_address("0xnothexnothexnothexnothexnothexnothexnoth").is_err()
+        );
     }
 }
