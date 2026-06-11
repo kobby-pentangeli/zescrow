@@ -42,12 +42,9 @@ use anyhow::Context;
 use bincode::config::standard;
 use risc0_zkvm::{ExecutorEnv, ProverOpts, Receipt, default_prover};
 use thiserror::Error;
-use tracing::{info, info_span};
+use tracing::info;
 use zescrow_core::error::CommitmentError;
-use zescrow_core::interface::{ESCROW_METADATA_PATH, load_escrow_data};
-use zescrow_core::{
-    Escrow, EscrowMetadata, ExecutionResult, ExecutionState, ID, ProofInput, PublicCommitment,
-};
+pub use zescrow_core::{ExecutionResult, ExecutionState, ProofInput, PublicCommitment};
 use zescrow_methods::{ZESCROW_GUEST_ELF, ZESCROW_GUEST_ID};
 
 /// Errors that can occur during proof generation and verification.
@@ -162,42 +159,10 @@ pub fn prove(input: &ProofInput) -> anyhow::Result<EscrowProof> {
     }
 }
 
-/// Loads escrow metadata from [`ESCROW_METADATA_PATH`] and generates a binding
-/// proof.
-///
-/// # Errors
-///
-/// Returns an error if the metadata cannot be read or parsed, the proof input
-/// cannot be assembled, or [`prove`] fails.
-pub fn run() -> anyhow::Result<EscrowProof> {
-    let _span = info_span!("zk_prover").entered();
-    let input = load_proof_input()?;
-    prove(&input)
-}
-
-/// Assembles a [`ProofInput`] from on-chain escrow metadata.
-fn load_proof_input() -> anyhow::Result<ProofInput> {
-    info!(path = ESCROW_METADATA_PATH, "Loading escrow metadata");
-    let metadata = load_escrow_data::<_, EscrowMetadata>(ESCROW_METADATA_PATH)?;
-
-    let chain = metadata.params.chain_config.chain;
-    let agent_id = ID::for_chain(chain, &metadata.params.chain_config.agent_id)?;
-    let escrow_id = metadata.escrow_id.unwrap_or_default();
-    let escrow = Escrow::from_metadata(metadata)
-        .with_context(|| "failed to construct Escrow from metadata")?;
-
-    Ok(ProofInput {
-        escrow,
-        chain,
-        agent_id,
-        escrow_id,
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use sha2::{Digest, Sha256};
-    use zescrow_core::{Asset, BigNumber, Chain, Condition, Party};
+    use zescrow_core::{Asset, BigNumber, Chain, Condition, Escrow, ID, Party};
 
     use super::*;
 
@@ -242,6 +207,20 @@ mod tests {
         }
         eprintln!("skipping prover test: set RISC0_DEV_MODE=1 to run");
         false
+    }
+
+    #[test]
+    fn public_commitment_journal_encodes_and_decodes() {
+        let input = proof_input(funded_escrow(None));
+        let outcome = ExecutionResult::Success(ExecutionState::ConditionsMet);
+        let commitment = PublicCommitment::new(&input, outcome).expect("build commitment");
+
+        let bytes = commitment.to_journal_bytes().expect("encode journal");
+        let decoded = PublicCommitment::from_journal_bytes(&bytes).expect("decode journal");
+
+        assert_eq!(decoded, commitment);
+        assert_eq!(decoded.escrow_id, input.escrow_id);
+        assert_eq!(decoded.outcome, outcome);
     }
 
     #[test]

@@ -249,8 +249,18 @@ fn release_proof(metadata: &EscrowMetadata) -> anyhow::Result<Option<ReleaseProo
 
     #[cfg(feature = "prover")]
     {
+        use zescrow_core::{Escrow, ID};
+
         info!("Generating release proof");
-        let proof = prover::run()?;
+        let chain = metadata.params.chain_config.chain;
+        let input = prover::ProofInput {
+            agent_id: ID::for_chain(chain, &metadata.params.chain_config.agent_id)?,
+            escrow_id: metadata.escrow_id.unwrap_or_default(),
+            escrow: Escrow::from_metadata(metadata.clone())
+                .with_context(|| "failed to construct Escrow from metadata")?,
+            chain,
+        };
+        let proof = prover::prove(&input)?;
         Ok(Some(ReleaseProof {
             seal: proof.encoded_seal()?,
             journal: proof.journal_bytes().to_vec(),
