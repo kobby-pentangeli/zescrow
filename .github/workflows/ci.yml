@@ -167,12 +167,8 @@ jobs:
           "$HOME/.cyfrin/bin/cyfrinup" || true
           "$HOME/.cyfrin/bin/aderyn" . || true
 
-  # Builds the zkVM guest and exercises proof generation under dev mode, which
-  # produces mock receipts and needs no GPU or Docker. This is the only job that
-  # builds the guest, so it overrides the workflow-level skip with an empty value
-  # (the guest builder skips only when RISC0_SKIP_BUILD is non-empty).
-  prover-devmode:
-    name: prover (dev-mode proving)
+  e2e:
+    name: end-to-end
     runs-on: ubuntu-latest
     env:
       RISC0_SKIP_BUILD: ""
@@ -181,6 +177,23 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+      # The Agave, SBF platform-tools, and RISC Zero downloads are hundreds of MB
+      # each; cache them across runs. The installers below are idempotent and skip
+      # work on a cache hit; the key is pinned to the toolchain versions.
+      - name: Cache the Solana and RISC Zero toolchains
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.local/share/solana
+            ~/.cache/solana
+            ~/.risc0
+          key: e2e-toolchains-agave-v3.0.13-sbf-v1.53-risc0-3.0.x
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+      - name: Install the Agave (Solana) toolchain
+        run: |
+          sh -c "$(curl -sSfL https://release.anza.xyz/v3.0.13/install)"
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
       - name: Install the RISC Zero toolchain
         run: |
           curl -L https://risczero.com/install | bash
@@ -188,5 +201,15 @@ jobs:
           "$HOME/.risc0/bin/rzup" install
       - name: Locate the r0vm prover server
         run: echo "RISC0_SERVER_PATH=$(find "$HOME/.risc0" -type f -name r0vm | head -1)" >> "$GITHUB_ENV"
+      - name: Build the Ethereum contract artifacts
+        working-directory: agent/ethereum
+        run: |
+          forge soldeer install
+          forge build
+      - name: Build the Solana program artifacts
+        working-directory: agent/solana/escrow
+        run: cargo build-sbf --tools-version v1.53
       - name: Build the guest and run dev-mode proving tests
         run: cargo test -p zescrow-prover
+      - name: Run the end-to-end matrix (both chains, dev mode)
+        run: cargo test -p zescrow-e2e -- --ignored --test-threads=1

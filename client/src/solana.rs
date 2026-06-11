@@ -6,6 +6,7 @@
 use core::str::FromStr;
 use std::path::{Path, PathBuf};
 
+use anchor_client::CommitmentConfig;
 use anchor_lang::{InstructionData, system_program};
 use escrow::{CreateEscrowArgs, ESCROW, VERIFIER_ROUTER, instruction as escrow_instruction};
 use num_traits::ToPrimitive;
@@ -83,7 +84,7 @@ impl SolanaAgent {
         info!(%escrow_program_id, "Using escrow program");
 
         Ok(Self {
-            client: RpcClient::new(rpc_url),
+            client: RpcClient::new_with_commitment(rpc_url, CommitmentConfig::confirmed()),
             sender_keypair,
             recipient_keypair,
             escrow_program_id,

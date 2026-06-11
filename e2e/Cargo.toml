@@ -1,0 +1,27 @@
+[package]
+name = "zescrow-e2e"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "End-to-end release-gate tests driving the Zescrow client against live local chains"
+publish = false
+
+[dependencies]
+alloy = { version = "2.0.5", features = ["signer-local", "node-bindings"] }
+anyhow = { workspace = true }
+ed25519-dalek = { version = "2.1", features = ["rand_core"] }
+hex = { workspace = true }
+k256 = { version = "0.13", features = ["ecdsa"] }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+solana-client = "3"
+solana-commitment-config = "3"
+solana-sdk = "3"
+tempfile = "3"
+tokio = { version = "1", features = ["full"] }
+tracing = { workspace = true }
+url = { version = "2.5", features = ["std"] }
+zescrow-client = { path = "../client", features = ["prover"] }
+zescrow-core = { workspace = true, features = ["bincode", "json"] }
