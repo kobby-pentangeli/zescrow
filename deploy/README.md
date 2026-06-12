@@ -1,8 +1,6 @@
 # Zescrow Deployment Guide
 
-Deploy and interact with Zescrow escrows on Solana and Ethereum networks.
-
-This guide covers both **local development** (test validators) and **devnet/testnet deployment** (devnet/Sepolia).
+Deploy and interact with Zescrow escrows on Solana and Ethereum networks. This guide covers both **local development** (test validators) and **devnet/testnet deployment** (devnet/Sepolia).
 
 ## Quick Start
 
@@ -14,7 +12,7 @@ cp deploy/.env.template .env
 # 2. Deploy (choose network)
 ./deploy/solana/run.sh --network local          # Local test validator
 ./deploy/solana/run.sh --network devnet         # Solana devnet
-./deploy/ethereum/run.sh --network local        # Local Hardhat node
+./deploy/ethereum/run.sh --network local        # Local node (anvil)
 ./deploy/ethereum/run.sh --network sepolia      # Ethereum Sepolia
 
 # 3. Copy the escrow parameters template and edit accordingly
@@ -30,13 +28,13 @@ cargo build -p zescrow-client
 
 ### Solana
 
-- [Solana CLI](https://docs.solana.com/cli/install-solana-cli-tools) (v1.18+)
-- [Anchor CLI](https://www.anchor-lang.com/docs/installation) (v0.32.1+)
+- [Agave (Solana) CLI](https://docs.anza.xyz/cli/install) (v3.0.13)
+- [Anchor CLI](https://www.anchor-lang.com/docs/installation) (v1.0.2+)
 - For devnet: ~3 SOL for deployment (use `solana airdrop`)
 
 ### Ethereum
 
-- [Node.js](https://nodejs.org/) (v18+)
+- [Foundry](https://book.getfoundry.sh/getting-started/installation) (`forge`, `cast`, `anvil`)
 - For Sepolia: ETH from a [faucet](https://sepoliafaucet.com/)
 - For Sepolia: RPC endpoint (Alchemy, Infura, etc.)
 
@@ -56,9 +54,11 @@ deploy/
 
 # Generated at runtime (git-ignored):
 # ├── escrow_params.json      # Active config (copied from solana/ or ethereum/)
-# ├── escrow_conditions.json  # ZK conditions (output from the 'generate' command)
-# ├── escrow_metadata.json    # Output from 'create' command
-# └── proof_data.json         # ZK proof data
+# ├── escrow_conditions.json  # Condition file (output from the 'generate' command)
+# └── escrow_metadata.json    # Output from 'create' command
+#
+# The release proof is generated and submitted in-process during 'finish';
+# nothing is written to disk.
 ```
 
 ## Environment Setup
@@ -194,17 +194,15 @@ cargo run --release -p zescrow-client --features prover -- finish \
 
 ## Ethereum Deployment
 
-### Local (Hardhat node)
+### Local (anvil)
 
-1. Start Hardhat node:
+1. Start a local node:
 
 ```bash
-cd agent/ethereum
-npm install
-npx hardhat node
+anvil
 ```
 
-Note the pre-funded accounts printed to the console. Pick one for sender and one for recipient.
+Note the pre-funded accounts and their private keys printed to the console. Pick one for the sender and one for the recipient.
 
 2. In a new terminal, deploy the contract:
 
@@ -215,7 +213,7 @@ Note the pre-funded accounts printed to the console. Pick one for sender and one
 3. Configure sender and recipient in your `.env`:
 
 ```bash
-# Use accounts from Hardhat node output (0x prefix optional)
+# Use accounts from the anvil node output (0x prefix optional)
 ETHEREUM_SENDER_PRIVATE_KEY=<account_0_private_key>
 ETHEREUM_SENDER_ADDRESS=<account_0_address>
 ETHEREUM_RECIPIENT_ADDRESS=<account_1_address>
@@ -239,7 +237,7 @@ cargo build -p zescrow-client
 ./target/debug/zescrow-client create
 
 # Release to recipient (after finish_after block)
-# For escrows WITHOUT conditions (0x prefix required):
+# For escrows WITHOUT conditions (Ethereum recipient key; 0x optional):
 ./target/debug/zescrow-client finish --recipient <RECIPIENT_PRIVATE_KEY>
 
 # For escrows WITH conditions (ZK proof generation):
@@ -253,9 +251,8 @@ cargo run --release -p zescrow-client --features prover -- finish \
 6. (Optional) Mine blocks to advance past `finish_after`:
 
 ```bash
-cd agent/ethereum
-npx hardhat console --network localhost
-> await ethers.provider.send("evm_mine", [])
+# Mine a single block; repeat as needed
+cast rpc evm_mine --rpc-url http://localhost:8545
 ```
 
 ### Sepolia (testnet)
@@ -299,7 +296,7 @@ cargo build -p zescrow-client
 ./target/debug/zescrow-client create
 
 # Release to recipient (after finish_after block)
-# For escrows WITHOUT conditions (0x prefix required):
+# For escrows WITHOUT conditions (Ethereum recipient key; 0x optional):
 ./target/debug/zescrow-client finish --recipient <RECIPIENT_PRIVATE_KEY>
 
 # For escrows WITH conditions (ZK proof generation):
@@ -381,18 +378,17 @@ cargo run --release -p zescrow-client --features prover -- finish --recipient <K
 
 ## Running Tests
 
-### Solana (Anchor)
+### Solana (litesvm harness)
 
 ```bash
 cd agent/solana/escrow
-anchor test                           # Starts its own validator
-anchor test --skip-local-validator    # Uses running validator
+cargo build-sbf --tools-version v1.53          # Build the program(s) to SBF
+cargo test --manifest-path harness/Cargo.toml  # Run the harness
 ```
 
-### Ethereum (Hardhat)
+### Ethereum (Foundry)
 
 ```bash
 cd agent/ethereum
-npx hardhat test                      # Starts its own node
-npx hardhat test --network localhost  # Uses running node
+forge test -vvv
 ```
