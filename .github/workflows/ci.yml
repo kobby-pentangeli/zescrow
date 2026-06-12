@@ -162,10 +162,10 @@ jobs:
           fail-on: high
           ignore-compile: true
       - name: Static analysis (Aderyn)
-        run: |
-          curl -L https://raw.githubusercontent.com/Cyfrin/aderyn/dev/cyfrinup/install | bash || true
-          "$HOME/.cyfrin/bin/cyfrinup" || true
-          "$HOME/.cyfrin/bin/aderyn" . || true
+        uses: Cyfrin/aderyn-ci@v0
+        with:
+          working-directory: agent/ethereum
+          warn-on: high
 
   e2e:
     name: end-to-end

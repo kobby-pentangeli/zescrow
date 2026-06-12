@@ -1,24 +1,25 @@
 # cargo-deny configuration. Run locally with `cargo deny check`.
 #
-# CI (.github/workflows/security.yml) runs `check advisories bans sources`. The
-# `licenses` check is configured below but not yet enforced in CI: the full
-# cross-chain dependency tree pulls a wide license set that must be enumerated
-# and validated with `cargo deny check licenses` before the gate is turned on.
+# CI (.github/workflows/security.yml) runs `check advisories bans sources`. The `licenses` check is configured below but not yet enforced in CI: the full
+# cross-chain dependency tree pulls a wide license set that must be enumerated and validated with `cargo deny check licenses` before the gate is turned on.
 
 [advisories]
 version = 2
 yanked = "deny"
+# Every entry below is a transitive advisory with no safe upgrade available, reached only through the cross-chain dependency stacks (Solana, RISC Zero,
+# alloy) and never through a Zescrow escrow, settlement, or cryptographic path. Each carries a rationale; a genuine vulnerability on a path we control would
+# surface under a different ID and is intentionally not suppressed.
 ignore = [
-  # bincode 2.x is flagged unmaintained, not vulnerable. It is zescrow's wire
-  # serializer, so migrating off it is a breaking wire-format change tracked as
-  # future work. A genuine bincode *vulnerability* would carry a different
-  # advisory ID and is intentionally not ignored here.
-  "RUSTSEC-2025-0141",
+  { id = "RUSTSEC-2025-0141", reason = "bincode 2.x is unmaintained, not vulnerable; it is the wire serializer, so replacing it is a breaking format change tracked as future work" },
+  { id = "RUSTSEC-2023-0071", reason = "rsa Marvin timing side-channel; reached only via solana-client transport, exercised by no escrow or cryptographic path (conditions are SHA-256/Ed25519/secp256k1, proofs are Groth16), and no patched release exists upstream" },
+  { id = "RUSTSEC-2024-0388", reason = "derivative unmaintained; a compile-time-only derive macro reached via risc0-groth16/arkworks, with no safe upgrade" },
+  { id = "RUSTSEC-2024-0436", reason = "paste archived/unmaintained; a compile-time-only macro reached via alloy-primitives, with no runtime surface" },
+  { id = "RUSTSEC-2025-0055", reason = "tracing-subscriber 0.2.x ANSI log injection; a legacy transitive via risc0-groth16, through which no untrusted input is logged" },
+  { id = "RUSTSEC-2026-0173", reason = "anza-quinn advisory; the Agave QUIC transport fork reached only via solana-client RPC, outside any escrow path" },
 ]
 
 [bans]
-# The cross-chain dependency tree (Solana, ethers, RISC Zero) legitimately
-# carries duplicate transitive versions; warn rather than fail so the signal is
+# The cross-chain dependency tree (Solana, ethers, RISC Zero) legitimately carries duplicate transitive versions; warn rather than fail so the signal is
 # visible without blocking unrelated work.
 multiple-versions = "warn"
 wildcards = "warn"
