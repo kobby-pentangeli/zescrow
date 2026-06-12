@@ -27,14 +27,11 @@ contract MockRiscZeroVerifier is IRiscZeroVerifier {
         expectedDigest = digest;
     }
 
-    function verify(
-        bytes calldata,
-        bytes32,
-        bytes32 journalDigest
-    ) external view {
+    function verify(bytes calldata, bytes32, bytes32 journalDigest) external view {
         if (accept) return;
-        if (expectedDigest != bytes32(0) && journalDigest == expectedDigest)
+        if (expectedDigest != bytes32(0) && journalDigest == expectedDigest) {
             return;
+        }
         revert MockVerificationFailed();
     }
 }

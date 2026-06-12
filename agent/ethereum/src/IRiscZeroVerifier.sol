@@ -18,9 +18,5 @@ interface IRiscZeroVerifier {
     /// @param seal The encoded cryptographic proof (selector-prefixed Groth16).
     /// @param imageId The cryptographic identifier of the guest program.
     /// @param journalDigest The SHA-256 digest of the committed journal.
-    function verify(
-        bytes calldata seal,
-        bytes32 imageId,
-        bytes32 journalDigest
-    ) external view;
+    function verify(bytes calldata seal, bytes32 imageId, bytes32 journalDigest) external view;
 }

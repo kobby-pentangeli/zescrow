@@ -47,16 +47,8 @@ contract Escrow is ReentrancyGuard {
         uint256 cancelAfter,
         bytes32 conditionId
     );
-    event EscrowFinished(
-        uint256 indexed escrowId,
-        address indexed recipient,
-        uint256 amount
-    );
-    event EscrowCancelled(
-        uint256 indexed escrowId,
-        address indexed sender,
-        uint256 amount
-    );
+    event EscrowFinished(uint256 indexed escrowId, address indexed recipient, uint256 amount);
+    event EscrowCancelled(uint256 indexed escrowId, address indexed sender, uint256 amount);
 
     error InvalidVerifier(); // verifier address is zero
     error InvalidImageId(); // pinned image id is zero
@@ -110,9 +102,7 @@ contract Escrow is ReentrancyGuard {
         if (conditionId != bytes32(0) && cancelAfter == 0) {
             revert ConditionRequiresCancel();
         }
-        if (
-            finishAfter != 0 && cancelAfter != 0 && finishAfter >= cancelAfter
-        ) {
+        if (finishAfter != 0 && cancelAfter != 0 && finishAfter >= cancelAfter) {
             revert InvalidTimeOrder();
         }
 
@@ -128,13 +118,7 @@ contract Escrow is ReentrancyGuard {
         });
 
         emit EscrowCreated(
-            escrowId,
-            msg.sender,
-            recipient,
-            msg.value,
-            finishAfter,
-            cancelAfter,
-            conditionId
+            escrowId, msg.sender, recipient, msg.value, finishAfter, cancelAfter, conditionId
         );
     }
 
@@ -146,11 +130,10 @@ contract Escrow is ReentrancyGuard {
     /// @param escrowId The escrow to release.
     /// @param seal The receipt seal (empty for an unconditioned escrow).
     /// @param journal The committed journal bytes (empty for an unconditioned escrow).
-    function finishEscrow(
-        uint256 escrowId,
-        bytes calldata seal,
-        bytes calldata journal
-    ) external nonReentrant {
+    function finishEscrow(uint256 escrowId, bytes calldata seal, bytes calldata journal)
+        external
+        nonReentrant
+    {
         EscrowDB storage escrow = _escrows[escrowId];
         if (escrow.sender == address(0)) revert EscrowNotExists();
         if (msg.sender != escrow.recipient) revert OnlyRecipient();
@@ -168,7 +151,7 @@ contract Escrow is ReentrancyGuard {
         escrow.amount = 0;
         emit EscrowFinished(escrowId, escrow.recipient, payout);
 
-        (bool ok, ) = payable(escrow.recipient).call{value: payout}("");
+        (bool ok,) = payable(escrow.recipient).call{value: payout}("");
         if (!ok) revert TransferFailed();
     }
 
@@ -187,16 +170,14 @@ contract Escrow is ReentrancyGuard {
         escrow.amount = 0;
         emit EscrowCancelled(escrowId, escrow.sender, refund);
 
-        (bool ok, ) = payable(escrow.sender).call{value: refund}("");
+        (bool ok,) = payable(escrow.sender).call{value: refund}("");
         if (!ok) revert TransferFailed();
     }
 
     /// @notice Retrieve an escrow's state.
     /// @param escrowId The escrow id.
     /// @return The `EscrowDB` for that id.
-    function getEscrow(
-        uint256 escrowId
-    ) external view returns (EscrowDB memory) {
+    function getEscrow(uint256 escrowId) external view returns (EscrowDB memory) {
         EscrowDB storage escrow = _escrows[escrowId];
         if (escrow.sender == address(0)) revert EscrowNotExists();
         return escrow;
@@ -231,11 +212,10 @@ contract Escrow is ReentrancyGuard {
     ///        met | agentLen(2)=20 | agent(20) | escrowId(8) | senderLen(2)=20 |
     ///        sender(20) | recipientLen(2)=20 | recipient(20) | assetKind(1)=0
     ///        native | tokenLen(2)=0 | amount(32) | condition(32)
-    function _checkJournalBinding(
-        EscrowDB storage escrow,
-        uint256 escrowId,
-        bytes calldata journal
-    ) private view {
+    function _checkJournalBinding(EscrowDB storage escrow, uint256 escrowId, bytes calldata journal)
+        private
+        view
+    {
         uint256 off;
         uint256 value;
 
@@ -270,8 +250,9 @@ contract Escrow is ReentrancyGuard {
         if (value != escrow.amount) revert JournalBindingMismatch();
 
         (value, off) = _readBE(journal, off, 32);
-        if (bytes32(value) != escrow.conditionId)
+        if (bytes32(value) != escrow.conditionId) {
             revert JournalBindingMismatch();
+        }
 
         if (off != journal.length) revert MalformedJournal(); // no trailing bytes
     }
@@ -280,10 +261,11 @@ contract Escrow is ReentrancyGuard {
     ///      address and return it with the advanced offset. The accumulator is
     ///      `uint160` and fed only widening byte values, so exactly 20 bytes
     ///      fill the address width with no truncating cast.
-    function _readAddress(
-        bytes calldata journal,
-        uint256 offset
-    ) private pure returns (address account, uint256 next) {
+    function _readAddress(bytes calldata journal, uint256 offset)
+        private
+        pure
+        returns (address account, uint256 next)
+    {
         uint256 len;
         (len, offset) = _readBE(journal, offset, 2);
         if (len != 20) revert MalformedJournal();
@@ -298,11 +280,11 @@ contract Escrow is ReentrancyGuard {
     }
 
     /// @dev Read `n` (<= 32) big-endian bytes as a `uint256`, bounds-checked.
-    function _readBE(
-        bytes calldata journal,
-        uint256 offset,
-        uint256 n
-    ) private pure returns (uint256 value, uint256 next) {
+    function _readBE(bytes calldata journal, uint256 offset, uint256 n)
+        private
+        pure
+        returns (uint256 value, uint256 next)
+    {
         next = offset + n;
         if (next > journal.length) revert MalformedJournal();
         for (uint256 i = offset; i < next; ++i) {

@@ -51,33 +51,17 @@ contract EscrowTest is Test {
             bytes20(agent),
             id8
         );
-        bytes memory parties = abi.encodePacked(
-            uint16(20),
-            bytes20(from),
-            uint16(20),
-            bytes20(to)
-        );
-        bytes memory asset = abi.encodePacked(
-            uint8(0),
-            uint16(0),
-            amount,
-            conditionId
-        );
+        bytes memory parties = abi.encodePacked(uint16(20), bytes20(from), uint16(20), bytes20(to));
+        bytes memory asset = abi.encodePacked(uint8(0), uint16(0), amount, conditionId);
         return bytes.concat(head, parties, asset);
     }
 
-    function _create(
-        uint256 finishAfter,
-        uint256 cancelAfter,
-        bytes32 conditionId
-    ) internal returns (uint256 id) {
+    function _create(uint256 finishAfter, uint256 cancelAfter, bytes32 conditionId)
+        internal
+        returns (uint256 id)
+    {
         vm.prank(sender);
-        id = escrow.createEscrow{value: AMOUNT}(
-            recipient,
-            finishAfter,
-            cancelAfter,
-            conditionId
-        );
+        id = escrow.createEscrow{value: AMOUNT}(recipient, finishAfter, cancelAfter, conditionId);
     }
 
     function test_Constructor_RevertsOnZeroVerifier() public {
@@ -113,23 +97,13 @@ contract EscrowTest is Test {
     function test_CreateEscrow_RevertsOnZeroRecipient() public {
         vm.prank(sender);
         vm.expectRevert(Escrow.InvalidRecipient.selector);
-        escrow.createEscrow{value: AMOUNT}(
-            address(0),
-            block.number + 1,
-            0,
-            CONDITION_ID
-        );
+        escrow.createEscrow{value: AMOUNT}(address(0), block.number + 1, 0, CONDITION_ID);
     }
 
     function test_CreateEscrow_RevertsOnZeroValue() public {
         vm.prank(sender);
         vm.expectRevert(Escrow.InsufficientValue.selector);
-        escrow.createEscrow{value: 0}(
-            recipient,
-            block.number + 1,
-            0,
-            CONDITION_ID
-        );
+        escrow.createEscrow{value: 0}(recipient, block.number + 1, 0, CONDITION_ID);
     }
 
     function test_CreateEscrow_RevertsOnNoTimelock() public {
@@ -143,22 +117,14 @@ contract EscrowTest is Test {
         // a finish-only window leaves no exit if the proof never arrives.
         vm.prank(sender);
         vm.expectRevert(Escrow.ConditionRequiresCancel.selector);
-        escrow.createEscrow{value: AMOUNT}(
-            recipient,
-            block.number + 1,
-            0,
-            CONDITION_ID
-        );
+        escrow.createEscrow{value: AMOUNT}(recipient, block.number + 1, 0, CONDITION_ID);
     }
 
     function test_CreateEscrow_RevertsOnBadTimeOrder() public {
         vm.prank(sender);
         vm.expectRevert(Escrow.InvalidTimeOrder.selector);
         escrow.createEscrow{value: AMOUNT}(
-            recipient,
-            block.number + 5,
-            block.number + 2,
-            CONDITION_ID
+            recipient, block.number + 5, block.number + 2, CONDITION_ID
         );
     }
 
@@ -209,14 +175,8 @@ contract EscrowTest is Test {
 
     function test_FinishConditioned_WithValidProof() public {
         uint256 id = _create(0, block.number + 100, CONDITION_ID);
-        bytes memory journal = _journal(
-            address(escrow),
-            id,
-            sender,
-            recipient,
-            AMOUNT,
-            CONDITION_ID
-        );
+        bytes memory journal =
+            _journal(address(escrow), id, sender, recipient, AMOUNT, CONDITION_ID);
 
         uint256 before = recipient.balance;
         vm.prank(recipient);
@@ -230,14 +190,8 @@ contract EscrowTest is Test {
         // The mock rejects everything except the exact digest, so a passing
         // finish proves the contract forwarded sha256(journal) unmodified.
         uint256 id = _create(0, block.number + 100, CONDITION_ID);
-        bytes memory journal = _journal(
-            address(escrow),
-            id,
-            sender,
-            recipient,
-            AMOUNT,
-            CONDITION_ID
-        );
+        bytes memory journal =
+            _journal(address(escrow), id, sender, recipient, AMOUNT, CONDITION_ID);
 
         verifier.setAccept(false);
         verifier.setExpectedDigest(sha256(journal));
@@ -249,14 +203,8 @@ contract EscrowTest is Test {
 
     function test_FinishConditioned_RevertsOnInvalidProof() public {
         uint256 id = _create(0, block.number + 100, CONDITION_ID);
-        bytes memory journal = _journal(
-            address(escrow),
-            id,
-            sender,
-            recipient,
-            AMOUNT,
-            CONDITION_ID
-        );
+        bytes memory journal =
+            _journal(address(escrow), id, sender, recipient, AMOUNT, CONDITION_ID);
 
         verifier.setAccept(false);
         vm.prank(recipient);
@@ -266,14 +214,8 @@ contract EscrowTest is Test {
 
     function test_FinishConditioned_RevertsOnAmountMismatch() public {
         uint256 id = _create(0, block.number + 100, CONDITION_ID);
-        bytes memory journal = _journal(
-            address(escrow),
-            id,
-            sender,
-            recipient,
-            AMOUNT + 1,
-            CONDITION_ID
-        );
+        bytes memory journal =
+            _journal(address(escrow), id, sender, recipient, AMOUNT + 1, CONDITION_ID);
 
         vm.prank(recipient);
         vm.expectRevert(Escrow.JournalBindingMismatch.selector);
@@ -282,14 +224,7 @@ contract EscrowTest is Test {
 
     function test_FinishConditioned_RevertsOnRecipientMismatch() public {
         uint256 id = _create(0, block.number + 100, CONDITION_ID);
-        bytes memory journal = _journal(
-            address(escrow),
-            id,
-            sender,
-            attacker,
-            AMOUNT,
-            CONDITION_ID
-        );
+        bytes memory journal = _journal(address(escrow), id, sender, attacker, AMOUNT, CONDITION_ID);
 
         vm.prank(recipient);
         vm.expectRevert(Escrow.JournalBindingMismatch.selector);
@@ -298,14 +233,8 @@ contract EscrowTest is Test {
 
     function test_FinishConditioned_RevertsOnConditionMismatch() public {
         uint256 id = _create(0, block.number + 100, CONDITION_ID);
-        bytes memory journal = _journal(
-            address(escrow),
-            id,
-            sender,
-            recipient,
-            AMOUNT,
-            keccak256("other-condition")
-        );
+        bytes memory journal =
+            _journal(address(escrow), id, sender, recipient, AMOUNT, keccak256("other-condition"));
 
         vm.prank(recipient);
         vm.expectRevert(Escrow.JournalBindingMismatch.selector);
@@ -314,14 +243,7 @@ contract EscrowTest is Test {
 
     function test_FinishConditioned_RevertsOnAgentMismatch() public {
         uint256 id = _create(0, block.number + 100, CONDITION_ID);
-        bytes memory journal = _journal(
-            attacker,
-            id,
-            sender,
-            recipient,
-            AMOUNT,
-            CONDITION_ID
-        );
+        bytes memory journal = _journal(attacker, id, sender, recipient, AMOUNT, CONDITION_ID);
 
         vm.prank(recipient);
         vm.expectRevert(Escrow.JournalBindingMismatch.selector);
@@ -330,14 +252,8 @@ contract EscrowTest is Test {
 
     function test_FinishConditioned_RevertsOnEscrowIdMismatch() public {
         uint256 id = _create(0, block.number + 100, CONDITION_ID);
-        bytes memory journal = _journal(
-            address(escrow),
-            id + 1,
-            sender,
-            recipient,
-            AMOUNT,
-            CONDITION_ID
-        );
+        bytes memory journal =
+            _journal(address(escrow), id + 1, sender, recipient, AMOUNT, CONDITION_ID);
 
         vm.prank(recipient);
         vm.expectRevert(Escrow.JournalBindingMismatch.selector);
@@ -346,14 +262,8 @@ contract EscrowTest is Test {
 
     function test_FinishConditioned_RevertsOnBadVersion() public {
         uint256 id = _create(0, block.number + 100, CONDITION_ID);
-        bytes memory journal = _journal(
-            address(escrow),
-            id,
-            sender,
-            recipient,
-            AMOUNT,
-            CONDITION_ID
-        );
+        bytes memory journal =
+            _journal(address(escrow), id, sender, recipient, AMOUNT, CONDITION_ID);
         journal[0] = bytes1(uint8(2));
 
         vm.prank(recipient);
@@ -363,14 +273,8 @@ contract EscrowTest is Test {
 
     function test_FinishConditioned_RevertsOnFailureOutcome() public {
         uint256 id = _create(0, block.number + 100, CONDITION_ID);
-        bytes memory journal = _journal(
-            address(escrow),
-            id,
-            sender,
-            recipient,
-            AMOUNT,
-            CONDITION_ID
-        );
+        bytes memory journal =
+            _journal(address(escrow), id, sender, recipient, AMOUNT, CONDITION_ID);
         journal[2] = bytes1(uint8(0)); // outcome: failure
 
         vm.prank(recipient);
@@ -381,15 +285,7 @@ contract EscrowTest is Test {
     function test_FinishConditioned_RevertsOnTrailingBytes() public {
         uint256 id = _create(0, block.number + 100, CONDITION_ID);
         bytes memory journal = abi.encodePacked(
-            _journal(
-                address(escrow),
-                id,
-                sender,
-                recipient,
-                AMOUNT,
-                CONDITION_ID
-            ),
-            uint8(0)
+            _journal(address(escrow), id, sender, recipient, AMOUNT, CONDITION_ID), uint8(0)
         );
 
         vm.prank(recipient);
@@ -399,14 +295,7 @@ contract EscrowTest is Test {
 
     function test_FinishConditioned_RevertsOnTruncatedJournal() public {
         uint256 id = _create(0, block.number + 100, CONDITION_ID);
-        bytes memory full = _journal(
-            address(escrow),
-            id,
-            sender,
-            recipient,
-            AMOUNT,
-            CONDITION_ID
-        );
+        bytes memory full = _journal(address(escrow), id, sender, recipient, AMOUNT, CONDITION_ID);
         bytes memory journal = new bytes(full.length - 1);
         for (uint256 i = 0; i < journal.length; ++i) {
             journal[i] = full[i];
@@ -456,38 +345,23 @@ contract EscrowTest is Test {
         vm.deal(sender, amount);
         vm.prank(sender);
         uint256 id = escrow.createEscrow{value: amount}(
-            recipient,
-            block.number + 1,
-            block.number + 100,
-            CONDITION_ID
+            recipient, block.number + 1, block.number + 100, CONDITION_ID
         );
         assertEq(escrow.getEscrow(id).amount, amount);
     }
 
-    function testFuzz_FinishConditioned_BindsAmountAndCondition(
-        uint256 amount,
-        bytes32 conditionId
-    ) public {
+    function testFuzz_FinishConditioned_BindsAmountAndCondition(uint256 amount, bytes32 conditionId)
+        public
+    {
         amount = bound(amount, 1, 1000 ether);
         vm.assume(conditionId != bytes32(0));
         vm.deal(sender, amount);
 
         vm.prank(sender);
-        uint256 id = escrow.createEscrow{value: amount}(
-            recipient,
-            0,
-            block.number + 100,
-            conditionId
-        );
+        uint256 id =
+            escrow.createEscrow{value: amount}(recipient, 0, block.number + 100, conditionId);
 
-        bytes memory journal = _journal(
-            address(escrow),
-            id,
-            sender,
-            recipient,
-            amount,
-            conditionId
-        );
+        bytes memory journal = _journal(address(escrow), id, sender, recipient, amount, conditionId);
 
         uint256 before = recipient.balance;
         vm.prank(recipient);
@@ -495,31 +369,17 @@ contract EscrowTest is Test {
         assertEq(recipient.balance, before + amount);
     }
 
-    function testFuzz_FinishConditioned_RevertsOnAmountMismatch(
-        uint256 good,
-        uint256 bad
-    ) public {
+    function testFuzz_FinishConditioned_RevertsOnAmountMismatch(uint256 good, uint256 bad) public {
         good = bound(good, 1, 1000 ether);
         bad = bound(bad, 1, 1000 ether);
         vm.assume(good != bad);
         vm.deal(sender, good);
 
         vm.prank(sender);
-        uint256 id = escrow.createEscrow{value: good}(
-            recipient,
-            0,
-            block.number + 100,
-            CONDITION_ID
-        );
+        uint256 id =
+            escrow.createEscrow{value: good}(recipient, 0, block.number + 100, CONDITION_ID);
 
-        bytes memory journal = _journal(
-            address(escrow),
-            id,
-            sender,
-            recipient,
-            bad,
-            CONDITION_ID
-        );
+        bytes memory journal = _journal(address(escrow), id, sender, recipient, bad, CONDITION_ID);
 
         vm.prank(recipient);
         vm.expectRevert(Escrow.JournalBindingMismatch.selector);
