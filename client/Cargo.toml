@@ -7,6 +7,7 @@ repository.workspace = true
 homepage.workspace = true
 description = "The Zescrow client CLI for cross-chain escrow operations"
 readme = "README.md"
+publish = false
 
 [features]
 default = []

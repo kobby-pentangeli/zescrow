@@ -6,6 +6,7 @@ license.workspace = true
 repository.workspace = true
 homepage.workspace = true
 description = "RISC Zero zkVM prover for Zescrow"
+publish = false
 
 [dependencies]
 anyhow = { workspace = true }

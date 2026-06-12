@@ -2,11 +2,30 @@
 
 `zescrow-client` is the Zescrow command-line interface and the library of on-chain agents behind it. It drives the full escrow lifecycle---create, finish, cancel---against either supported chain through a single `ChainConfig`, and for a conditioned escrow it generates the zero-knowledge receipt and submits it to the on-chain proof gate.
 
-The crate is both a binary (the `zescrow-client` CLI) and a library: the `ZescrowClient`, the `Agent` trait, and the `EthereumAgent`/`SolanaAgent` implementations are public so other Rust programs can embed the same flow.
+The crate is both a binary (the `zescrow-client` CLI) and a library: the `ZescrowClient`, the `Agent` trait, and the `EthereumAgent`/`SolanaAgent` implementations are public, so other Rust programs can embed the same flow as a Git or path dependency.
 
 ## Features
 
 - `prover` (off by default): pulls in `zescrow-prover` so the client can generate a RISC Zero receipt for a conditioned escrow. Without it, conditioned escrows can be created and cancelled, but `finish` is refused rather than attempted against the proof gate without a receipt. Unconditioned escrows need no prover.
+
+## Installation
+
+`zescrow-client` ships with the repository rather than on crates.io. Install the CLI from source:
+
+```bash
+# Unconditioned (timelock-only) escrows---no RISC Zero toolchain needed.
+cargo install --git https://github.com/kobby-pentangeli/zescrow zescrow-client
+
+# With zero-knowledge proof generation for conditioned escrows.
+cargo install --git https://github.com/kobby-pentangeli/zescrow zescrow-client --features prover
+```
+
+Or build it from a checkout of the workspace:
+
+```bash
+cargo build --release -p zescrow-client                    # timelock-only
+cargo build --release -p zescrow-client --features prover  # with ZK proving
+```
 
 ## Configuration
 
@@ -41,16 +60,6 @@ zescrow-client generate threshold  --subconditions a.json b.json --threshold 1
 ```
 
 `<RECIPIENT>` is interpreted against the configured chain: a keypair-file path on Solana, or a hex private key (`0x` prefix optional) on Ethereum.
-
-## Building
-
-```bash
-# Unconditioned escrows only (no RISC Zero toolchain needed).
-cargo build --release -p zescrow-client
-
-# With zero-knowledge proof generation for conditioned escrows.
-cargo build --release -p zescrow-client --features prover
-```
 
 See the repository [Deployment Guide](../deploy/README.md) for an end-to-end walkthrough on a local node and on devnet/testnet, and [`docs/development.md`](../docs/development.md) for the toolchain and dev-mode proving setup.
 

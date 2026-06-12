@@ -36,8 +36,19 @@ zescrow/
 
 ### Prerequisites
 
-1. Install [Rust](https://rustup.rs/) (stable; the workspace uses the 2024 edition, which requires Rust 1.85 or newer)
-2. (Optional) Install the [RISC Zero toolchain](https://dev.risczero.com/api/zkvm/quickstart#1-install-the-risc-zero-toolchain)---only required for ZK conditions
+The fastest path is the setup script, which idempotently installs and pins every toolchain the workspace targets---Rust (stable + nightly), the RISC Zero zkVM toolchain, the Agave (Solana) CLI, and Anchor:
+
+```bash
+./scripts/setup.sh            # install everything (same as --all)
+./scripts/setup.sh --verify   # print installed versions, install nothing
+```
+
+The script also takes per-component flags (`--rust`, `--risc0`, `--solana`, `--anchor`) to install only what you need. Foundry (`forge`, `cast`, `anvil`), required for the Ethereum agent, is installed separately; see the [Development Guide](docs/development.md) for the full toolchain and version pins.
+
+For a minimal build you need only:
+
+1. [Rust](https://rustup.rs/) (stable; the workspace uses the 2024 edition, which requires Rust 1.85 or newer)
+2. (Optional) the [RISC Zero toolchain](https://dev.risczero.com/api/zkvm/quickstart#1-install-the-risc-zero-toolchain)---only required for ZK conditions
 
 ### Deploy
 
