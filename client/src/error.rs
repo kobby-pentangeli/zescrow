@@ -56,10 +56,6 @@ pub enum ClientError {
     #[error("URL parse error: {0}")]
     UrlParse(#[from] url::ParseError),
 
-    /// Error parsing a hex address.
-    #[error("address parse error: {0}")]
-    AddressParse(#[from] rustc_hex::FromHexError),
-
     /// Invalid operation for the current chain context.
     #[error("invalid chain operation: {0}")]
     InvalidChainOperation(String),
@@ -115,18 +111,6 @@ impl ClientError {
 impl From<solana_client::client_error::ClientError> for ClientError {
     fn from(value: solana_client::client_error::ClientError) -> Self {
         Self::SolanaRpc(Box::new(value))
-    }
-}
-
-impl From<ethers::providers::ProviderError> for ClientError {
-    fn from(value: ethers::providers::ProviderError) -> Self {
-        Self::Blockchain(value.to_string())
-    }
-}
-
-impl From<ethers::signers::WalletError> for ClientError {
-    fn from(value: ethers::signers::WalletError) -> Self {
-        Self::Keypair(value.to_string())
     }
 }
 

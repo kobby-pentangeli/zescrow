@@ -5,10 +5,9 @@
 //! - [`ConditionError`]: Cryptographic condition verification failures
 //! - [`IdentityError`]: Identity parsing and validation errors
 //! - [`AssetError`]: Asset validation and serialization errors
+//! - [`CommitmentError`]: Public-commitment journal encoding/decoding errors
 
 use thiserror::Error;
-
-use crate::BigNumber;
 
 /// Errors arising from on-chain `Escrow` operations and parameter validation.
 #[derive(Debug, Error)]
@@ -108,7 +107,7 @@ pub enum IdentityError {
 #[derive(Debug, Error)]
 #[non_exhaustive]
 pub enum AssetError {
-    /// Failed to parse an asset from a string or JSON.
+    /// Failed to serialize an asset to bytes or JSON.
     #[error("could not serialize asset: {0}")]
     Serialization(String),
 
@@ -116,42 +115,13 @@ pub enum AssetError {
     #[error("could not parse asset: {0}")]
     Parsing(String),
 
-    /// A fungible or multi-token amount and/or total supply was zero, which is not allowed.
+    /// A token or native amount was zero, which is not allowed.
     #[error("amount must be non-zero")]
     ZeroAmount,
 
-    /// ID for asset, program, or contract not provided.
+    /// The contract address or mint for a fungible token was not provided.
     #[error("missing ID for asset, program, or contract")]
     MissingId,
-
-    /// Total supply of token not provided.
-    #[error("missing `total_supply` for specified token")]
-    MissingTotalSupply,
-
-    /// Invalid ID for asset, program, or contract.
-    #[error("invalid ID for asset, program, or contract")]
-    InvalidId,
-
-    /// A liquidity pool share was invalid;
-    /// `share` must be > 0 and <= total supply.
-    #[error("share must be non-zero and <= total supply (share={0}, total={1})")]
-    InvalidShare(BigNumber, BigNumber),
-
-    /// The specified number of decimals was invalid.
-    #[error("invalid decimals: {0}")]
-    InvalidDecimals(u8),
-
-    /// Fixed-point formatting overflow (e.g., amount or decimals too large).
-    #[error("human formatting overflow: amount={0}, decimals={1}")]
-    FormatOverflow(BigNumber, u8),
-
-    /// The provided asset string did not match a supported format.
-    #[error("unsupported asset string format")]
-    UnsupportedFormat,
-
-    /// Error parsing an integer (e.g., token ID or amount) from a string.
-    #[error("integer parsing error: {0}")]
-    ParseInt(#[from] std::num::ParseIntError),
 }
 
 impl EscrowError {
@@ -159,5 +129,46 @@ impl EscrowError {
     /// in the RISC Zero guest.
     pub fn to_str(&self) -> String {
         self.to_string()
+    }
+}
+
+/// Errors encoding or decoding the public-commitment journal.
+#[derive(Debug, Error)]
+#[non_exhaustive]
+pub enum CommitmentError {
+    /// The amount did not fit in the fixed 256-bit journal field.
+    #[error("amount exceeds 256 bits and cannot be committed")]
+    AmountTooLarge,
+
+    /// A length-prefixed field exceeded the journal's 16-bit size limit.
+    #[error("field length {0} exceeds the journal's 16-bit size limit")]
+    FieldTooLong(usize),
+
+    /// The journal ended before a field could be fully read.
+    #[error("journal truncated at offset {0}")]
+    Truncated(usize),
+
+    /// The journal carried unexpected bytes past its declared fields.
+    #[error("journal has trailing bytes after offset {0}")]
+    TrailingBytes(usize),
+
+    /// The journal's leading version byte is not a layout this build understands.
+    #[error("unknown journal version {0}")]
+    UnknownVersion(u8),
+
+    /// An enum discriminant in the journal did not map to a known variant.
+    #[error("unknown {field} tag {value}")]
+    UnknownTag {
+        /// Name of the field whose tag was unrecognized.
+        field: &'static str,
+        /// The unrecognized tag value.
+        value: u8,
+    },
+}
+
+impl CommitmentError {
+    /// Constructs a [`CommitmentError::UnknownTag`] for `field` and `value`.
+    pub(crate) fn unknown_tag(field: &'static str, value: u8) -> Self {
+        Self::UnknownTag { field, value }
     }
 }

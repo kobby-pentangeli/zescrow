@@ -4,7 +4,7 @@ Core library for Zescrow: zero-knowledge escrows via the RISC Zero zkVM.
 
 ## Modules
 
-- `asset` — chain-agnostic asset types (coins, tokens, NFTs, LP shares)  
+- `asset` — chain-agnostic asset types (the native coin and fungible tokens)  
 - `condition` — cryptographic conditions (hashlocks, signatures, threshold)
 - `escrow` — off-chain escrow state machine with ZK proofs
 - `identity` — identity parsing and format conversions (hex, Base58, Base64)  
@@ -26,7 +26,7 @@ Add the crate as a dependency in your `Cargo.toml` (enable the `json` feature if
 
 ```toml
 [dependencies]
-zescrow-core = { version = "0.2", features = ["json"] }
+zescrow-core = { version = "0.3", features = ["json"] }
 ```
 
 ```rust
@@ -39,12 +39,7 @@ fn execute_escrow() -> Result<()> {
     let sender = Party::new("0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045")?;
     let recipient = Party::new("0xEA674fdDe714fd979de3EdF0F56AA9716B898ec8")?;
 
-    let asset = Asset::token(
-        ID::from("0xdeadbeef".as_bytes()),
-        BigNumber::from(1_000u64),
-        BigNumber::from(2_000u64),
-        18,
-    );
+    let asset = Asset::token(ID::from("0xdeadbeef".as_bytes()), BigNumber::from(1_000u64), 18);
 
     let preimage = b"secret".to_vec();
     let hash = Sha256::digest(&preimage);
@@ -68,5 +63,4 @@ fn execute_escrow() -> Result<()> {
 
 ## License
 
-Licensed under either [Apache License, Version 2.0](../LICENSE-APACHE)  
-or [MIT License](../LICENSE-MIT) at your option.
+Licensed under either [Apache License, Version 2.0](../LICENSE-APACHE) or [MIT License](../LICENSE-MIT) at your option.

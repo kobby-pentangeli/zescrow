@@ -29,7 +29,6 @@ use std::path::PathBuf;
 
 pub use error::ClientError;
 pub use ethereum::EthereumAgent;
-use ethers::signers::LocalWallet;
 pub use solana::SolanaAgent;
 use tracing::{debug, info};
 use zescrow_core::interface::ChainConfig;
@@ -45,6 +44,16 @@ pub use zescrow_prover as prover;
 
 /// Result type alias using [`ClientError`].
 pub type Result<T> = std::result::Result<T, ClientError>;
+
+/// A verifying release proof for a conditioned escrow, carried from the prover
+/// to the on-chain settlement call.
+#[derive(Debug, Clone, Default)]
+pub struct ReleaseProof {
+    /// Selector-prefixed receipt seal.
+    pub seal: Vec<u8>,
+    /// Journal bytes the guest committed.
+    pub journal: Vec<u8>,
+}
 
 /// Core interface for blockchain-specific escrow operations.
 ///
@@ -63,6 +72,8 @@ pub trait Agent: Send + Sync {
     /// # Arguments
     ///
     /// * `params` - Escrow creation parameters including assets, parties, and timelocks
+    /// * `condition` - The release-condition commitment for a conditioned escrow,
+    ///   or `None` for an unconditioned, time-lock-only escrow
     ///
     /// # Returns
     ///
@@ -71,24 +82,36 @@ pub trait Agent: Send + Sync {
     /// # Errors
     ///
     /// Returns an error if transaction submission or confirmation fails.
-    async fn create_escrow(&self, params: &EscrowParams) -> Result<EscrowMetadata>;
+    async fn create_escrow(
+        &self,
+        params: &EscrowParams,
+        condition: Option<[u8; 32]>,
+    ) -> Result<EscrowMetadata>;
 
     /// Releases escrowed funds to the beneficiary.
     ///
     /// # Arguments
     ///
     /// * `metadata` - Escrow metadata from creation
+    /// * `proof` - The verifying release proof for a conditioned escrow, or
+    ///   `None` for an unconditioned escrow
     ///
     /// # Preconditions
     ///
     /// - Escrow must be in funded state
     /// - Current block/slot must be at or after `finish_after` (if set)
     /// - Caller must be the recipient
+    /// - A conditioned escrow requires a `proof` that verifies on-chain
     ///
     /// # Errors
     ///
-    /// Returns an error if the caller is not authorized or timelocks are not met.
-    async fn finish_escrow(&self, metadata: &EscrowMetadata) -> Result<()>;
+    /// Returns an error if the caller is not authorized, timelocks are not met,
+    /// or a conditioned escrow's proof fails on-chain verification.
+    async fn finish_escrow(
+        &self,
+        metadata: &EscrowMetadata,
+        proof: Option<ReleaseProof>,
+    ) -> Result<()>;
 
     /// Refunds escrowed funds to the depositor.
     ///
@@ -125,18 +148,12 @@ pub struct ZescrowClientBuilder {
     recipient: Option<Recipient>,
 }
 
-/// Recipient key configuration for escrow operations.
-///
-/// Different chains use different key formats:
-/// - Ethereum uses wallet private keys (hex-encoded)
-/// - Solana uses keypair files (JSON)
+/// A recipient signing credential, kept as the raw input and interpreted
+/// against the target [`Chain`] at build time:
+/// - Ethereum: a hex-encoded wallet private key
+/// - Solana: a path to a keypair JSON file
 #[derive(Debug, Clone)]
-pub enum Recipient {
-    /// Ethereum wallet for signing transactions.
-    Ethereum(LocalWallet),
-    /// Path to a Solana keypair JSON file.
-    Solana(PathBuf),
-}
+pub struct Recipient(String);
 
 impl ZescrowClient {
     /// Creates a new builder for constructing a client.
@@ -160,8 +177,12 @@ impl ZescrowClient {
     /// # Returns
     ///
     /// Metadata for the created escrow, including chain-specific identifiers.
-    pub async fn create_escrow(&self, params: &EscrowParams) -> Result<EscrowMetadata> {
-        let metadata = self.agent.create_escrow(params).await?;
+    pub async fn create_escrow(
+        &self,
+        params: &EscrowParams,
+        condition: Option<[u8; 32]>,
+    ) -> Result<EscrowMetadata> {
+        let metadata = self.agent.create_escrow(params, condition).await?;
         debug!(?metadata, "Escrow created");
         Ok(metadata)
     }
@@ -171,10 +192,19 @@ impl ZescrowClient {
     /// # Arguments
     ///
     /// * `metadata` - Escrow metadata from creation
-    pub async fn finish_escrow(&self, metadata: &EscrowMetadata) -> Result<()> {
-        self.agent.finish_escrow(metadata).await.inspect(|_| {
-            debug!("Escrow released");
-        })
+    /// * `proof` - The verifying release proof for a conditioned escrow, or
+    ///   `None` for an unconditioned escrow
+    pub async fn finish_escrow(
+        &self,
+        metadata: &EscrowMetadata,
+        proof: Option<ReleaseProof>,
+    ) -> Result<()> {
+        self.agent
+            .finish_escrow(metadata, proof)
+            .await
+            .inspect(|_| {
+                debug!("Escrow released");
+            })
     }
 
     /// Cancels an existing escrow and refunds the sender.
@@ -208,63 +238,54 @@ impl ZescrowClientBuilder {
     pub async fn build(self) -> Result<ZescrowClient> {
         debug!("Building ZescrowClient with config: {:?}", self.config);
 
-        let agent: Box<dyn Agent> = match &self.config.chain {
+        let ZescrowClientBuilder { config, recipient } = self;
+        let agent: Box<dyn Agent> = match config.chain {
             Chain::Ethereum => {
-                let wallet = self.ethereum_wallet()?;
-                debug!(wallet_present = wallet.is_some(), "Selected EthereumAgent");
-                Box::new(EthereumAgent::new(&self.config, wallet).await?)
+                let key = recipient.map(|r| r.0);
+                debug!(recipient_present = key.is_some(), "Selected EthereumAgent");
+                Box::new(EthereumAgent::new(&config, key).await?)
             }
             Chain::Solana => {
-                let keypair_path = self.solana_keypair()?;
+                let keypair_path = recipient.map(|r| PathBuf::from(r.0));
                 debug!(
                     keypair_present = keypair_path.is_some(),
                     "Selected SolanaAgent"
                 );
-                Box::new(SolanaAgent::new(&self.config, keypair_path).await?)
+                Box::new(SolanaAgent::new(&config, keypair_path).await?)
             }
         };
 
         info!("Agent initialized successfully");
         Ok(ZescrowClient { agent })
     }
-
-    /// Extracts the Ethereum wallet from the recipient configuration.
-    fn ethereum_wallet(&self) -> Result<Option<LocalWallet>> {
-        match &self.recipient {
-            Some(Recipient::Ethereum(w)) => Ok(Some(w.clone())),
-            Some(Recipient::Solana(_)) => Err(ClientError::Keypair(
-                "expected Ethereum wallet for Ethereum chain".into(),
-            )),
-            None => Ok(None),
-        }
-    }
-
-    /// Extracts the Solana keypair path from the recipient configuration.
-    fn solana_keypair(&self) -> Result<Option<PathBuf>> {
-        match &self.recipient {
-            Some(Recipient::Solana(path)) => Ok(Some(path.clone())),
-            Some(Recipient::Ethereum(_)) => Err(ClientError::Keypair(
-                "expected Solana keypair file for Solana chain".into(),
-            )),
-            None => Ok(None),
-        }
-    }
 }
 
 impl std::str::FromStr for Recipient {
-    type Err = ClientError;
+    type Err = std::convert::Infallible;
 
-    /// Parses a recipient from a string.
-    ///
-    /// - Strings starting with `0x` are parsed as Ethereum private keys (prefix required)
-    /// - Other strings are treated as paths to Solana keypair files
+    /// Captures the raw recipient input; its meaning (Ethereum key vs. Solana
+    /// keypair path) is resolved against the chain when the client is built.
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
-        s.strip_prefix("0x")
-            .map(|_| {
-                s.parse::<LocalWallet>()
-                    .map(Self::Ethereum)
-                    .map_err(|e| ClientError::Keypair(e.to_string()))
-            })
-            .unwrap_or_else(|| Ok(Self::Solana(PathBuf::from(s))))
+        Ok(Self(s.to_owned()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn recipient_captures_raw_input() {
+        let eth: Recipient = "0xfeedface".parse().unwrap();
+        assert_eq!(eth.0, "0xfeedface");
+        let solana: Recipient = "/home/user/id.json".parse().unwrap();
+        assert_eq!(solana.0, "/home/user/id.json");
+    }
+
+    #[test]
+    fn ethereum_error_carries_context_and_message() {
+        let message = ClientError::ethereum("createEscrow", "boom").to_string();
+        assert!(message.contains("createEscrow"));
+        assert!(message.contains("boom"));
     }
 }

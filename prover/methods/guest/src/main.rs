@@ -1,22 +1,28 @@
-//! The RISC Zero guest
+//! The RISC Zero guest.
+//!
+//! Verifies an escrow's release condition and commits a binding
+//! [`PublicCommitment`] to the journal, tying the receipt to one settlement.
+//! The witness that satisfies the condition stays private inside the guest.
 
 use bincode::config::standard;
 use risc0_zkvm::guest::env;
-use zescrow_core::interface::ExecutionResult;
-use zescrow_core::Escrow;
+use zescrow_core::{ExecutionResult, ProofInput, PublicCommitment};
 
-/// Expects from the host:
-/// - `Escrow` object decoded from bytes containing escrow transaction details.
 fn main() {
     let bytes: Vec<u8> = env::read_frame();
-    let (mut escrow, _): (Escrow, _) =
-        bincode::decode_from_slice(&bytes, standard()).expect("failed to decode from slice");
+    let (mut input, _): (ProofInput, _) =
+        bincode::decode_from_slice(&bytes, standard()).expect("failed to decode proof input");
 
-    let result = escrow
-        .execute()
-        .map(ExecutionResult::Ok)
-        .unwrap_or_else(|e| ExecutionResult::Err(e.to_string()));
+    let outcome = match input.escrow.execute() {
+        Ok(state) => ExecutionResult::Success(state),
+        Err(_) => ExecutionResult::Failure,
+    };
 
-    let result = bincode::encode_to_vec(&result, standard()).expect("failed to encode to vec");
-    env::commit_slice(&result);
+    let commitment =
+        PublicCommitment::new(&input, outcome).expect("failed to build public commitment");
+    let journal = commitment
+        .to_journal_bytes()
+        .expect("failed to encode journal");
+
+    env::commit_slice(&journal);
 }

@@ -6,13 +6,14 @@
 use core::str::FromStr;
 use std::path::{Path, PathBuf};
 
-use anchor_lang::{system_program, InstructionData};
-use escrow::{instruction as escrow_instruction, CreateEscrowArgs, ESCROW};
+use anchor_client::CommitmentConfig;
+use anchor_lang::{InstructionData, system_program};
+use escrow::{CreateEscrowArgs, ESCROW, VERIFIER_ROUTER, instruction as escrow_instruction};
 use num_traits::ToPrimitive;
 use solana_client::rpc_client::RpcClient;
 use solana_sdk::instruction::{AccountMeta, Instruction};
 use solana_sdk::pubkey::Pubkey;
-use solana_sdk::signature::{read_keypair_file, Keypair};
+use solana_sdk::signature::{Keypair, read_keypair_file};
 use solana_sdk::signer::Signer;
 use solana_sdk::transaction::Transaction;
 use tracing::{debug, info, trace};
@@ -21,7 +22,7 @@ use zescrow_core::{EscrowMetadata, EscrowParams, ExecutionState};
 
 use super::Agent;
 use crate::error::ClientError;
-use crate::Result;
+use crate::{ReleaseProof, Result};
 
 // Instruction names for logging.
 const CREATE_ESCROW: &str = "create_escrow";
@@ -83,7 +84,7 @@ impl SolanaAgent {
         info!(%escrow_program_id, "Using escrow program");
 
         Ok(Self {
-            client: RpcClient::new(rpc_url),
+            client: RpcClient::new_with_commitment(rpc_url, CommitmentConfig::confirmed()),
             sender_keypair,
             recipient_keypair,
             escrow_program_id,
@@ -96,10 +97,15 @@ impl SolanaAgent {
             .map_err(|e| ClientError::Keypair(format!("failed to load {} keypair: {}", name, e)))
     }
 
-    /// Derives the escrow PDA from sender and recipient public keys.
-    fn derive_escrow_pda(&self, sender: &Pubkey, recipient: &Pubkey) -> Pubkey {
+    /// Derives the per-escrow PDA from the sender, recipient, and unique id.
+    fn derive_escrow_pda(&self, sender: &Pubkey, recipient: &Pubkey, id: u64) -> Pubkey {
         let (pda, _bump) = Pubkey::find_program_address(
-            &[ESCROW, sender.as_ref(), recipient.as_ref()],
+            &[
+                ESCROW,
+                sender.as_ref(),
+                recipient.as_ref(),
+                &id.to_le_bytes(),
+            ],
             &self.escrow_program_id,
         );
         pda
@@ -131,14 +137,26 @@ impl SolanaAgent {
     }
 
     /// Builds the finish_escrow instruction.
-    fn build_finish_instruction(&self, recipient: Pubkey, escrow_pda: Pubkey) -> Instruction {
+    ///
+    /// `seal` carries the receipt seal for a conditioned escrow and is empty for
+    /// an unconditioned, time-lock-only escrow. The pinned verifier router is
+    /// passed for the program's CPI; it is unused on the unconditioned path.
+    fn build_finish_instruction(
+        &self,
+        recipient: Pubkey,
+        sender: Pubkey,
+        escrow_pda: Pubkey,
+        seal: Vec<u8>,
+    ) -> Instruction {
         Instruction {
             program_id: self.escrow_program_id,
             accounts: vec![
                 AccountMeta::new(recipient, true),
+                AccountMeta::new(sender, false),
                 AccountMeta::new(escrow_pda, false),
+                AccountMeta::new_readonly(VERIFIER_ROUTER, false),
             ],
-            data: InstructionData::data(&escrow_instruction::FinishEscrow {}),
+            data: InstructionData::data(&escrow_instruction::FinishEscrow { seal }),
         }
     }
 
@@ -199,11 +217,45 @@ impl SolanaAgent {
                 ))
             })
     }
+
+    /// Draws a unique escrow id from fresh entropy. The id seeds the PDA and
+    /// binds the proof journal; reusing one for a live `(sender, recipient)`
+    /// pair would fail account initialization, so fresh randomness avoids reuse.
+    fn fresh_escrow_id() -> u64 {
+        let bytes = Keypair::new().pubkey().to_bytes();
+        u64::from_le_bytes([
+            bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
+        ])
+    }
+
+    /// Reads the escrow id recorded at creation, required to re-derive the PDA.
+    fn escrow_id(metadata: &EscrowMetadata, operation: &'static str) -> Result<u64> {
+        metadata
+            .escrow_id
+            .ok_or_else(|| ClientError::solana(operation, "escrow id missing from metadata"))
+    }
+
+    /// Frames a release proof's seal for the verifier-router CPI.
+    ///
+    /// The program splices these bytes straight into the router's `verify`
+    /// instruction data, which Borsh-decodes its `proof: Vec<u8>` argument, so
+    /// the seal must already carry its four-byte little-endian length prefix.
+    /// The journal is reconstructed on-chain, so only the seal travels with the
+    /// call.
+    fn router_seal(proof: ReleaseProof) -> Result<Vec<u8>> {
+        let len = u32::try_from(proof.seal.len())
+            .map_err(|_| ClientError::solana(FINISH_ESCROW, "seal length exceeds u32"))?;
+        Ok(len.to_le_bytes().into_iter().chain(proof.seal).collect())
+    }
 }
 
 #[async_trait::async_trait]
 impl Agent for SolanaAgent {
-    async fn create_escrow(&self, params: &EscrowParams) -> Result<EscrowMetadata> {
+    async fn create_escrow(
+        &self,
+        params: &EscrowParams,
+        condition: Option<[u8; 32]>,
+    ) -> Result<EscrowMetadata> {
         let sender = Self::parse_pubkey(&params.sender)?;
         Self::validate_keypair(&self.sender_keypair, &sender, "sender")?;
 
@@ -216,13 +268,16 @@ impl Agent for SolanaAgent {
             .ok_or(ClientError::AssetOverflow)?;
         trace!(%amount, "Computed escrow amount");
 
-        let escrow_pda = self.derive_escrow_pda(&sender, &recipient);
-        info!(%escrow_pda, "Derived escrow PDA");
+        let id = Self::fresh_escrow_id();
+        let escrow_pda = self.derive_escrow_pda(&sender, &recipient, id);
+        info!(%escrow_pda, id, "Derived escrow PDA");
 
         let args = CreateEscrowArgs {
+            id,
             amount,
             finish_after: params.finish_after,
             cancel_after: params.cancel_after,
+            condition: condition.unwrap_or_default(),
         };
 
         let instruction = self.build_create_instruction(sender, recipient, escrow_pda, args);
@@ -234,21 +289,30 @@ impl Agent for SolanaAgent {
         Ok(EscrowMetadata {
             params: params.clone(),
             state: ExecutionState::Funded,
-            escrow_id: None,
+            escrow_id: Some(id),
         })
     }
 
-    async fn finish_escrow(&self, metadata: &EscrowMetadata) -> Result<()> {
+    async fn finish_escrow(
+        &self,
+        metadata: &EscrowMetadata,
+        proof: Option<ReleaseProof>,
+    ) -> Result<()> {
         let sender = Self::parse_pubkey(&metadata.params.sender)?;
         let recipient = Self::parse_pubkey(&metadata.params.recipient)?;
+        let id = Self::escrow_id(metadata, FINISH_ESCROW)?;
 
         let recipient_keypair = self.recipient_keypair()?;
         Self::validate_keypair(recipient_keypair, &recipient, "recipient")?;
 
-        let escrow_pda = self.derive_escrow_pda(&sender, &recipient);
+        let escrow_pda = self.derive_escrow_pda(&sender, &recipient, id);
         debug!(%escrow_pda, "Using escrow PDA");
 
-        let instruction = self.build_finish_instruction(recipient, escrow_pda);
+        let seal = proof
+            .map(Self::router_seal)
+            .transpose()?
+            .unwrap_or_default();
+        let instruction = self.build_finish_instruction(recipient, sender, escrow_pda, seal);
         debug!("{} instruction built", FINISH_ESCROW);
 
         self.submit_transaction(instruction, &recipient, &[recipient_keypair], FINISH_ESCROW)?;
@@ -260,8 +324,9 @@ impl Agent for SolanaAgent {
     async fn cancel_escrow(&self, metadata: &EscrowMetadata) -> Result<()> {
         let sender = Self::parse_pubkey(&metadata.params.sender)?;
         let recipient = Self::parse_pubkey(&metadata.params.recipient)?;
+        let id = Self::escrow_id(metadata, CANCEL_ESCROW)?;
 
-        let escrow_pda = self.derive_escrow_pda(&sender, &recipient);
+        let escrow_pda = self.derive_escrow_pda(&sender, &recipient, id);
         debug!(%escrow_pda, "Using escrow PDA");
 
         let instruction = self.build_cancel_instruction(sender, escrow_pda);
@@ -271,5 +336,33 @@ impl Agent for SolanaAgent {
         info!("{} transaction confirmed", CANCEL_ESCROW);
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // The framing must match what the program splices into the router CPI: a
+    // four-byte little-endian length prefix followed by the seal bytes (the same
+    // shape the on-chain test harness encodes for the mock verifier).
+    #[test]
+    fn router_seal_frames_with_le_length_prefix() {
+        let proof = ReleaseProof {
+            seal: vec![0xab, 0xcd],
+            journal: Vec::new(),
+        };
+        assert_eq!(
+            SolanaAgent::router_seal(proof).unwrap(),
+            vec![2, 0, 0, 0, 0xab, 0xcd]
+        );
+    }
+
+    #[test]
+    fn router_seal_of_empty_is_just_the_length() {
+        assert_eq!(
+            SolanaAgent::router_seal(ReleaseProof::default()).unwrap(),
+            vec![0, 0, 0, 0]
+        );
     }
 }

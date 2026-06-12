@@ -1,15 +1,15 @@
 [package]
 name = "zescrow-core"
-version = "0.2.0"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
 description = "Core library for Zescrow: zero-knowledge escrow transactions via RISC Zero zkVM"
-license = "MIT OR Apache-2.0"
-repository = "https://github.com/kobby-pentangeli/zescrow"
-homepage = "https://github.com/kobby-pentangeli/zescrow"
 documentation = "https://docs.rs/zescrow-core"
 readme = "README.md"
 keywords = ["zk", "zero-knowledge", "escrow", "risc-zero", "zkvm"]
 categories = ["cryptography"]
-edition = "2021"
 
 [features]
 default = ["bincode"]
@@ -17,22 +17,21 @@ bincode = []
 json = ["serde", "serde_json", "serde_bytes", "serde_with"]
 
 [dependencies]
-anyhow = "1"
+anyhow = { workspace = true }
 base64 = "0.22"
 bs58 = "0.5"
 ed25519-dalek = { version = "2.1", features = ["rand_core"] }
-hex = { version = "0.4", features = ["serde"] }
+hex = { workspace = true }
 k256 = { version = "0.13", features = ["ecdsa"] }
 num-bigint = "0.4"
 num-integer = "0.1"
-num-traits = "0.2"
-sha2 = "0.10"
+num-traits = { workspace = true }
+sha2 = { workspace = true }
 subtle = "2.6"
-thiserror = "2"
+thiserror = { workspace = true }
+bincode = { workspace = true }
 
-bincode = { version = "2", features = ["derive"] }
-
-serde = { version = "1", features = ["derive"], optional = true }
+serde = { workspace = true, optional = true }
 serde_bytes = { version = "0.11", optional = true }
-serde_json = { version = "1", optional = true }
+serde_json = { workspace = true, optional = true }
 serde_with = { version = "3.12", features = ["hex"], optional = true }

@@ -1,7 +1,9 @@
 [package]
 name = "zescrow-methods"
-version = "0.1.0"
-edition = "2021"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
 
 [build-dependencies]
 risc0-build = { version = "3" }

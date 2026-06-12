@@ -7,11 +7,9 @@
     },
     "asset": {
         "kind": "native",
-        "id": null,
         "agent_id": null,
         "amount": "1000000000",
-        "decimals": null,
-        "total_supply": null
+        "decimals": null
     },
     "sender": {
         "identity": {

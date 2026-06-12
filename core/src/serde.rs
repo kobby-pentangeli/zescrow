@@ -4,7 +4,7 @@
 #[cfg(feature = "json")]
 pub mod biguint_serde {
     use num_bigint::BigUint;
-    use serde::{de, Deserialize, Deserializer, Serializer};
+    use serde::{Deserialize, Deserializer, Serializer, de};
 
     /// Serialize a `BigUint` as a &str.
     pub fn serialize<S>(value: &BigUint, s: S) -> Result<S::Ok, S::Error>
@@ -30,7 +30,7 @@ pub mod biguint_serde {
 pub mod utf8_serde {
     use std::str;
 
-    use serde::{ser, Deserialize, Deserializer, Serializer};
+    use serde::{Deserialize, Deserializer, Serializer, ser};
 
     /// Convert a byte slice into a &str and serialize.
     pub fn serialize<S>(bytes: &[u8], serializer: S) -> Result<S::Ok, S::Error>

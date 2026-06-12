@@ -32,8 +32,11 @@ To send a pull request, please:
 5. Send a pull request, answering any default questions in the pull request interface.
 6. Pay attention to any automated CI failures reported in the pull request, and stay involved in the conversation.
 
-GitHub provides additional document on [forking a repository](https://help.github.com/articles/fork-a-repo/) and
-[creating a pull request](https://help.github.com/articles/creating-a-pull-request/).
+GitHub provides additional document on [forking a repository](https://help.github.com/articles/fork-a-repo/) and [creating a pull request](https://help.github.com/articles/creating-a-pull-request/).
+
+## Development Setup
+
+For the toolchains, the dev (build/test) commands, the dev-mode proving environment, and how to run the end-to-end suite locally, see the [Development Guide](./docs/development.md).
 
 ## Licensing
 

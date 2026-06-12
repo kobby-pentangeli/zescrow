@@ -22,16 +22,19 @@ use serde::{Deserialize, Serialize};
 use crate::{Asset, EscrowError, Party};
 
 /// Default path to escrow parameters configuration.
+#[cfg(feature = "json")]
 pub const ESCROW_PARAMS_PATH: &str =
     concat!(env!("CARGO_MANIFEST_DIR"), "/../deploy/escrow_params.json");
 
 /// Default path to on-chain escrow metadata (output from create command).
+#[cfg(feature = "json")]
 pub const ESCROW_METADATA_PATH: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../deploy/escrow_metadata.json"
 );
 
 /// Default path to escrow conditions.
+#[cfg(feature = "json")]
 pub const ESCROW_CONDITIONS_PATH: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../deploy/escrow_conditions.json"
@@ -47,16 +50,27 @@ pub const ESCROW_CONDITIONS_PATH: &str = concat!(
 ///
 /// ```
 /// # use zescrow_core::interface::expand_env_vars;
-/// std::env::set_var("MY_VAR", "hello");
-/// assert_eq!(expand_env_vars("prefix-${MY_VAR}-suffix"), "prefix-hello-suffix");
+/// // Strings without `${...}` are returned unchanged.
+/// assert_eq!(expand_env_vars("prefix-suffix"), "prefix-suffix");
 ///
-/// // Unset variables become empty strings
-/// std::env::remove_var("UNSET_VAR");
-/// assert_eq!(expand_env_vars("${UNSET_VAR}"), "");
+/// // Unset variables expand to empty strings.
+/// assert_eq!(expand_env_vars("${ZESCROW_DOC_UNSET_VAR}"), "");
 /// ```
 #[cfg(feature = "json")]
 #[must_use]
 pub fn expand_env_vars(input: &str) -> Cow<'_, str> {
+    expand_with(input, |name| std::env::var(name).ok())
+}
+
+/// Expands `${VAR}` references in `input`, resolving each name through `lookup`.
+///
+/// Names that `lookup` resolves to `None` are replaced with an empty string.
+/// Returns `Cow::Borrowed` when the input contains no `${` and needs no expansion.
+#[cfg(feature = "json")]
+fn expand_with<F>(input: &str, mut lookup: F) -> Cow<'_, str>
+where
+    F: FnMut(&str) -> Option<String>,
+{
     if !input.contains("${") {
         return Cow::Borrowed(input);
     }
@@ -71,7 +85,7 @@ pub fn expand_env_vars(input: &str) -> Cow<'_, str> {
         match after_start.find('}') {
             Some(end) => {
                 let var_name = &after_start[..end];
-                if let Ok(value) = std::env::var(var_name) {
+                if let Some(value) = lookup(var_name) {
                     result.push_str(&value);
                 }
                 remaining = &after_start[end + 1..];
@@ -85,6 +99,35 @@ pub fn expand_env_vars(input: &str) -> Cow<'_, str> {
 
     result.push_str(remaining);
     Cow::Owned(result)
+}
+
+/// Expands `${VAR}` references for the config-loading path, failing if any
+/// referenced variable is unset.
+///
+/// Unlike [`expand_env_vars`], a missing variable is a hard error here: a
+/// secret-bearing field such as `sender_private_id` silently expanding to an
+/// empty string would surface only as a confusing downstream failure. The
+/// error names every unset variable so the misconfiguration is actionable.
+#[cfg(feature = "json")]
+fn expand_env_checked(input: &str) -> anyhow::Result<String> {
+    let mut missing = Vec::new();
+    let expanded = expand_with(input, |name| match std::env::var(name) {
+        Ok(value) => Some(value),
+        Err(_) => {
+            missing.push(name.to_string());
+            None
+        }
+    })
+    .into_owned();
+
+    if missing.is_empty() {
+        Ok(expanded)
+    } else {
+        anyhow::bail!(
+            "unset environment variable(s) referenced in configuration: {}",
+            missing.join(", ")
+        )
+    }
 }
 
 /// Reads a JSON-encoded file from the given `path` and deserializes into type `T`.
@@ -117,7 +160,7 @@ where
     let path = path.as_ref();
     let content =
         std::fs::read_to_string(path).with_context(|| format!("loading escrow data: {path:?}"))?;
-    let expanded = expand_env_vars(&content);
+    let expanded = expand_env_checked(&content)?;
     serde_json::from_str(&expanded).with_context(|| format!("parsing JSON from {path:?}"))
 }
 
@@ -166,16 +209,6 @@ pub enum ExecutionState {
     ConditionsMet,
 }
 
-/// Result of escrow execution in the `client`.
-#[cfg_attr(feature = "json", derive(Serialize, Deserialize))]
-#[derive(Debug, Clone, Encode, Decode)]
-pub enum ExecutionResult {
-    /// Happy path; no errors in execution.
-    Ok(ExecutionState),
-    /// Unsuccessful escrow execution, with the error message.
-    Err(String),
-}
-
 /// Metadata returned from on-chain escrow creation.
 #[cfg_attr(feature = "json", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, Encode, Decode)]
@@ -195,7 +228,7 @@ pub struct EscrowParams {
     /// Chain-specific network configuration.
     pub chain_config: ChainConfig,
 
-    /// Exactly which asset to lock (native, token, NFT, pool-share, etc).
+    /// Exactly which asset to lock (the native coin or a fungible token).
     pub asset: Asset,
 
     /// Who is funding the escrow.
@@ -236,7 +269,7 @@ pub struct ChainConfig {
 /// Supported blockchain networks.
 #[cfg_attr(feature = "json", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "json", serde(rename_all = "lowercase"))]
-#[derive(Debug, Copy, Clone, Encode, Decode)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Encode, Decode)]
 pub enum Chain {
     /// Ethereum and other EVM-compatible chains.
     Ethereum,
@@ -312,41 +345,54 @@ mod tests {
 
     #[test]
     fn expand_env_vars_no_vars() {
-        let input = "no variables here";
-        let result = expand_env_vars(input);
+        let result = expand_env_vars("no variables here");
         assert_eq!(result, "no variables here");
         // Should return Borrowed when no expansion needed
         assert!(matches!(result, std::borrow::Cow::Borrowed(_)));
     }
 
     #[test]
-    fn expand_env_vars_single_var() {
-        std::env::set_var("TEST_VAR_SINGLE", "hello");
-        let result = expand_env_vars("prefix-${TEST_VAR_SINGLE}-suffix");
+    fn expand_with_single_var() {
+        let result = expand_with("prefix-${VAR}-suffix", |name| {
+            (name == "VAR").then(|| "hello".to_string())
+        });
         assert_eq!(result, "prefix-hello-suffix");
-        std::env::remove_var("TEST_VAR_SINGLE");
     }
 
     #[test]
-    fn expand_env_vars_multiple_vars() {
-        std::env::set_var("TEST_VAR_A", "alpha");
-        std::env::set_var("TEST_VAR_B", "beta");
-        let result = expand_env_vars("${TEST_VAR_A} and ${TEST_VAR_B}");
+    fn expand_with_multiple_vars() {
+        let result = expand_with("${A} and ${B}", |name| match name {
+            "A" => Some("alpha".to_string()),
+            "B" => Some("beta".to_string()),
+            _ => None,
+        });
         assert_eq!(result, "alpha and beta");
-        std::env::remove_var("TEST_VAR_A");
-        std::env::remove_var("TEST_VAR_B");
     }
 
     #[test]
-    fn expand_env_vars_unset_becomes_empty() {
-        std::env::remove_var("TEST_VAR_UNSET_XYZ");
-        let result = expand_env_vars("before-${TEST_VAR_UNSET_XYZ}-after");
+    fn expand_with_unset_becomes_empty() {
+        let result = expand_with("before-${UNSET}-after", |_| None);
         assert_eq!(result, "before--after");
     }
 
     #[test]
-    fn expand_env_vars_unclosed_brace() {
-        let result = expand_env_vars("prefix-${UNCLOSED");
+    fn expand_with_unclosed_brace() {
+        let result = expand_with("prefix-${UNCLOSED", |_| Some("value".to_string()));
         assert_eq!(result, "prefix-${UNCLOSED");
+    }
+
+    #[test]
+    fn expand_env_checked_passthrough_without_vars() {
+        let result = expand_env_checked("no variables here").unwrap();
+        assert_eq!(result, "no variables here");
+    }
+
+    #[test]
+    fn expand_env_checked_errors_on_unset() {
+        let err = expand_env_checked("key=${ZESCROW_TEST_DEFINITELY_UNSET_VAR_XYZ}").unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("ZESCROW_TEST_DEFINITELY_UNSET_VAR_XYZ")
+        );
     }
 }

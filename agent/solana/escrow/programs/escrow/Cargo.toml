@@ -1,6 +1,6 @@
 [package]
 name = "escrow"
-version = "0.2.0"
+version = "0.3.0"
 description = "Zescrow Solana program with XRPL-style time-lock semantics"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/kobby-pentangeli/zescrow"
@@ -19,8 +19,12 @@ no-log-ix-name = []
 idl-build = ["anchor-lang/idl-build"]
 
 [dependencies]
-anchor-lang = "0.32.1"
+anchor-lang = "1.0.2"
+sha2 = { version = "0.10", default-features = false }
 
-# Suppress cfg warnings from Anchor/Solana macro expansions (upstream issue)
+# Suppress lints triggered inside Anchor/Solana macro expansions (upstream issue)
 [lints.rust]
 unexpected_cfgs = "allow"
+
+[lints.clippy]
+diverging_sub_expression = "allow"

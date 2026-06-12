@@ -5,23 +5,22 @@
 
 pub mod asset;
 pub mod bignum;
+pub mod commitment;
 pub mod condition;
 pub mod error;
 pub mod escrow;
 pub mod identity;
-#[cfg(feature = "json")]
-pub mod interface;
-#[cfg(not(feature = "json"))]
 pub mod interface;
 #[cfg(feature = "json")]
 pub mod serde;
 
 pub use asset::{Asset, AssetKind};
 pub use bignum::BigNumber;
+pub use commitment::{ExecutionResult, ProofInput, PublicCommitment};
 pub use condition::Condition;
 pub use error::EscrowError;
 pub use escrow::Escrow;
-pub use identity::{Party, ID};
+pub use identity::{ID, Party};
 pub use interface::{Chain, ChainConfig, EscrowMetadata, EscrowParams, ExecutionState};
 
 /// `Result` type for all core operations.

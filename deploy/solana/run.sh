@@ -14,7 +14,7 @@
 #
 # Prerequisites:
 #   - Solana CLI installed and configured
-#   - Anchor CLI installed (v0.32.1+)
+#   - Anchor CLI installed (v1.0.2+)
 #   - For devnet: sufficient SOL balance for sender/deployer (~3 SOL)
 
 set -euo pipefail

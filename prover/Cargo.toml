@@ -1,23 +1,22 @@
 [package]
 name = "zescrow-prover"
-version = "0.1.0"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
 description = "RISC Zero zkVM prover for Zescrow"
-license = "MIT OR Apache-2.0"
-repository = "https://github.com/kobby-pentangeli/zescrow"
-homepage = "https://github.com/kobby-pentangeli/zescrow"
-edition = "2021"
+publish = false
 
 [dependencies]
-anyhow = "1.0"
-bincode = { version = "2", features = ["derive"] }
+anyhow = { workspace = true }
+bincode = { workspace = true }
+risc0-ethereum-contracts = "3"
 risc0-zkvm = { version = "3", features = ["unstable"] }
-thiserror = "2"
-tracing = "0.1"
+thiserror = { workspace = true }
+tracing = { workspace = true }
+zescrow-core = { workspace = true, features = ["bincode", "json"] }
+zescrow-methods = { workspace = true }
 
-[dependencies.zescrow-core]
-path = "../core"
-default-features = false
-features = ["bincode", "json"]
-
-[dependencies.zescrow-methods]
-path = "methods"
+[dev-dependencies]
+sha2 = { workspace = true }

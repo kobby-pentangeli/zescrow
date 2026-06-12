@@ -7,7 +7,7 @@
 use bincode::{Decode, Encode};
 #[cfg(feature = "json")]
 use {
-    crate::interface::{EscrowMetadata, ESCROW_CONDITIONS_PATH},
+    crate::interface::{ESCROW_CONDITIONS_PATH, EscrowMetadata},
     serde::{Deserialize, Serialize},
     serde_json,
 };
@@ -148,7 +148,6 @@ mod tests {
         Asset::token(
             ID::from("0xdeadbeef".as_bytes()),
             BigNumber::from(1_000u64),
-            BigNumber::from(2_000u64),
             18,
         )
     }
@@ -200,7 +199,6 @@ mod tests {
         let invalid_asset = Asset::token(
             ID::from("0xdeadbeef".as_bytes()),
             BigNumber::from(0u64), // zero amount
-            BigNumber::from(2_000u64),
             18,
         );
         let mut escrow = Escrow::new(valid_sender(), valid_recipient(), invalid_asset, None);

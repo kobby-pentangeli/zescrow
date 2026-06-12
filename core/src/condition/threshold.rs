@@ -20,32 +20,38 @@ pub struct Threshold {
 }
 
 impl Threshold {
-    /// Verifies that at least `threshold` subconditions are satisfied.
+    /// Verifies that at least `self.threshold` subconditions are satisfied.
     ///
-    /// Returns `Ok(())` if the threshold is met, or `Err` with details
-    /// about how many conditions passed versus required.
+    /// A threshold of zero is rejected as malformed. A threshold exceeding the
+    /// number of subconditions is likewise rejected, since it can never be met.
     ///
-    /// A threshold of zero is always satisfied, regardless of subconditions.
+    /// # Errors
+    ///
+    /// - [`Error::ZeroThreshold`] if threshold == 0.
+    /// - [`Error::ThresholdUnsatisfiable`] if threshold > subconditions.len().
+    /// - [`Error::ThresholdNotMet`] if fewer than threshold subconditions verify.
     pub fn verify(&self) -> Result<(), Error> {
-        (self.threshold == 0)
-            .then_some(())
-            .map(Ok)
-            .unwrap_or_else(|| self.verify_threshold())
+        match self.threshold {
+            0 => Err(Error::ZeroThreshold),
+            required if required > self.subconditions.len() => Err(Error::ThresholdUnsatisfiable {
+                required,
+                available: self.subconditions.len(),
+            }),
+            required => {
+                let satisfied = self.count_satisfied();
+                (satisfied >= required)
+                    .then_some(())
+                    .ok_or(Error::ThresholdNotMet {
+                        required,
+                        satisfied,
+                    })
+            }
+        }
     }
 
-    /// Counts satisfied subconditions and checks against threshold.
-    fn verify_threshold(&self) -> Result<(), Error> {
-        let satisfied = self.count_satisfied();
-
-        (satisfied >= self.threshold)
-            .then_some(())
-            .ok_or(Error::ThresholdNotMet {
-                required: self.threshold,
-                satisfied,
-            })
-    }
-
-    /// Counts the number of subconditions that verify successfully.
+    /// Counts the number of subconditions that verify successfully. A
+    /// subcondition that fails to verify simply does not count toward the
+    /// threshold.
     fn count_satisfied(&self) -> usize {
         self.subconditions
             .iter()
@@ -57,6 +63,19 @@ impl Threshold {
 /// Threshold conditions verification errors.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    /// The threshold was zero.
+    #[error("threshold must be greater than zero")]
+    ZeroThreshold,
+
+    /// The threshold exceeds the number of subconditions and can never be met.
+    #[error("threshold {required} exceeds the {available} subconditions available")]
+    ThresholdUnsatisfiable {
+        /// Minimum number of valid subconditions required.
+        required: usize,
+        /// Number of subconditions present.
+        available: usize,
+    },
+
     /// Fewer than the required number of subconditions were satisfied.
     #[error("needed at least {required} passes, but only {satisfied} succeeded")]
     ThresholdNotMet {

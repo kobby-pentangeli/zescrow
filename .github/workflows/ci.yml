@@ -2,143 +2,214 @@ name: CI
 
 on:
   push:
-    branches:
-      - main
+    branches: [master]
   pull_request:
-    types: [opened, reopened, synchronize]
+    branches: [master]
 
 env:
   CARGO_TERM_COLOR: always
+  # Skip compiling the RISC Zero zkVM guest, which requires the rzup-managed
+  # toolchain; the host crates then build against stub method constants. The
+  # guest is exercised by the dedicated proving job, not on every push.
   RISC0_SKIP_BUILD: "1"
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  check:
-    name: cargo check
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        toolchain: [stable]
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: ${{ matrix.toolchain }}
-      - name: Cache cargo registry
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-check-${{ hashFiles('**/Cargo.lock') }}
-      - name: cargo check (core)
-        run: cargo check --manifest-path=core/Cargo.toml --all-targets --all-features
-      - name: cargo check (escrow program)
-        run: cargo check --manifest-path=agent/solana/escrow/programs/escrow/Cargo.toml --all-targets --all-features
-      - name: cargo check (prover)
-        run: cargo check --manifest-path=prover/Cargo.toml --all-targets
-      - name: cargo check (client)
-        run: cargo check --manifest-path=client/Cargo.toml --all-targets
-      - name: cargo check (client with prover)
-        run: cargo check --manifest-path=client/Cargo.toml --all-targets --features prover
-
-  test:
-    name: cargo test
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        toolchain: [stable, nightly]
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: ${{ matrix.toolchain }}
-      - name: Cache cargo registry
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-test-${{ matrix.toolchain }}-${{ hashFiles('**/Cargo.lock') }}
-      - name: cargo test (core)
-        run: cargo test --manifest-path=core/Cargo.toml -- --nocapture
-      - name: cargo test (escrow program)
-        run: cargo test --manifest-path=agent/solana/escrow/programs/escrow/Cargo.toml -- --nocapture
-      - name: cargo test (prover)
-        run: cargo test --manifest-path=prover/Cargo.toml -- --nocapture
-      - name: cargo test (client)
-        run: cargo test --manifest-path=client/Cargo.toml -- --nocapture
-
-  clippy:
-    name: cargo clippy
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install nightly + clippy
-        uses: dtolnay/rust-toolchain@nightly
-        with:
-          components: clippy
-      - name: Cache cargo registry
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-clippy-${{ hashFiles('**/Cargo.lock') }}
-      - name: cargo clippy (core)
-        run: cargo clippy --manifest-path=core/Cargo.toml -- -D warnings
-      - name: cargo clippy (escrow program)
-        run: cargo clippy --manifest-path=agent/solana/escrow/programs/escrow/Cargo.toml -- -D warnings
-      - name: cargo clippy (prover)
-        run: cargo clippy --manifest-path=prover/Cargo.toml -- -D warnings
-      - name: cargo clippy (client)
-        run: cargo clippy --manifest-path=client/Cargo.toml -- -D warnings
-
   fmt:
-    name: rustfmt (check)
+    name: rustfmt
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install nightly + rustfmt
+      - name: Install nightly rustfmt
         uses: dtolnay/rust-toolchain@nightly
         with:
           components: rustfmt
-      - name: rustfmt check (core)
-        run: cargo fmt --manifest-path=core/Cargo.toml -- --check
-      - name: rustfmt check (escrow program)
-        run: cargo fmt --manifest-path=agent/solana/escrow/programs/escrow/Cargo.toml -- --check
-      - name: rustfmt check (prover)
-        run: cargo fmt --manifest-path=prover/Cargo.toml -- --check
-      - name: rustfmt check (client)
-        run: cargo fmt --manifest-path=client/Cargo.toml -- --check
+      - run: cargo +nightly fmt --all --check
 
-  docs:
-    name: cargo doc (check)
+  clippy:
+    name: clippy
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-      - name: Cache cargo registry
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy --all-features --all-targets --workspace -- -D warnings
+
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Unit, integration, and target tests
+        run: cargo test --all-features --all-targets --workspace
+      - name: Doctests
+        run: cargo test --all-features --doc --workspace
+
+  build:
+    name: build (release)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release --all-features --all-targets --workspace
+
+  docs:
+    name: docs
+    runs-on: ubuntu-latest
+    env:
+      RUSTDOCFLAGS: "-D warnings"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo doc --all-features --no-deps --document-private-items --workspace
+
+  # The Solana program is its own Anchor workspace (the escrow program plus a
+  # test-only verifier stub), excluded from the root workspace; the litesvm
+  # harness is a further excluded crate so the SBF toolchain never parses its
+  # edition-2024 dependencies. These host-target checks format and lint both. The
+  # SBF build and the harness suite (litesvm + journal parity) run in the
+  # dedicated job below.
+  escrow-program:
+    name: solana program (host checks)
+    runs-on: ubuntu-latest
+    env:
+      MANIFEST: agent/solana/escrow/Cargo.toml
+      HARNESS: agent/solana/escrow/harness/Cargo.toml
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - name: Install nightly rustfmt
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rustfmt
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: agent/solana/escrow
+      - run: cargo +nightly fmt --manifest-path "$MANIFEST" --all -- --check
+      - run: cargo +nightly fmt --manifest-path "$HARNESS" --all -- --check
+      - run: cargo +stable clippy --manifest-path "$MANIFEST" --all-targets -- -D warnings
+      - run: cargo +stable clippy --manifest-path "$HARNESS" --all-targets -- -D warnings
+
+  # Builds the escrow and mock-verifier programs to SBF and runs the harness:
+  # create/finish/cancel, authorization and time-lock reverts, the proof-gated
+  # finish through the verifier CPI, and the journal-reconstruction parity check.
+  # litesvm loads the compiled `.so` files directly, so no validator or Docker is
+  # required. The Agave toolchain is pinned to the 3.x line that Anchor 1.0.2 and
+  # litesvm target, so the emitted SBF loads under the test runtime.
+  escrow-program-sbf:
+    name: solana program (sbf build + harness)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: agent/solana/escrow
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: agent/solana/escrow
+      - name: Install the Agave (Solana) toolchain
+        run: |
+          sh -c "$(curl -sSfL https://release.anza.xyz/v3.0.13/install)"
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
+      # Anchor 1.0.2's proc-macro build dependencies are edition 2024, which needs
+      # a platform-tools whose Rust is >= 1.85; the toolchain bundled with the
+      # pinned Agave predates it, so the SBF build uses a newer platform-tools
+      # (the compiler only---the Solana runtime crates stay on the 3.x line).
+      - name: Build the SBF programs
+        run: cargo build-sbf --tools-version v1.53
+      - name: Harness suite (litesvm + journal parity)
+        run: cargo test --manifest-path harness/Cargo.toml
+
+  # The Ethereum agent is a Foundry project with its own Solidity toolchain and
+  # Soldeer-managed dependencies, so it is covered by a dedicated job: format,
+  # build, the unit/revert/fuzz suite, and static analysis (Slither gating on
+  # high-severity findings, Aderyn as a supplementary report).
+  contracts-ethereum:
+    name: ethereum contracts (foundry)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: agent/ethereum
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+      - name: Install Solidity dependencies
+        run: forge soldeer install
+      - name: Format check
+        run: forge fmt --check
+      - name: Build
+        run: forge build --build-info
+      - name: Test (unit, revert, fuzz)
+        run: forge test -vvv
+      - name: Static analysis (Slither)
+        uses: crytic/slither-action@v0.4.0
+        with:
+          target: agent/ethereum
+          slither-config: agent/ethereum/slither.config.json
+          fail-on: high
+          ignore-compile: true
+      - name: Static analysis (Aderyn)
+        uses: Cyfrin/aderyn-ci@v0
+        with:
+          working-directory: agent/ethereum
+          warn-on: high
+
+  e2e:
+    name: end-to-end
+    runs-on: ubuntu-latest
+    env:
+      RISC0_SKIP_BUILD: ""
+      RISC0_DEV_MODE: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # The Agave, SBF platform-tools, and RISC Zero downloads are hundreds of MB
+      # each; cache them across runs. The installers below are idempotent and skip
+      # work on a cache hit; the key is pinned to the toolchain versions.
+      - name: Cache the Solana and RISC Zero toolchains
         uses: actions/cache@v4
         with:
           path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-doc-${{ hashFiles('**/Cargo.lock') }}
-      - name: cargo doc (core)
-        run: cargo doc --manifest-path=core/Cargo.toml --no-deps
-      - name: cargo doc (escrow program)
-        run: cargo doc --manifest-path=agent/solana/escrow/programs/escrow/Cargo.toml --no-deps
-      - name: cargo doc (prover)
-        run: cargo doc --manifest-path=prover/Cargo.toml --no-deps
-      - name: cargo doc (client)
-        run: cargo doc --manifest-path=client/Cargo.toml --no-deps
-
+            ~/.local/share/solana
+            ~/.cache/solana
+            ~/.risc0
+          key: e2e-toolchains-agave-v3.0.13-sbf-v1.53-risc0-3.0.x
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+      - name: Install the Agave (Solana) toolchain
+        run: |
+          sh -c "$(curl -sSfL https://release.anza.xyz/v3.0.13/install)"
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
+      - name: Install the RISC Zero toolchain
+        run: |
+          curl -L https://risczero.com/install | bash
+          echo "$HOME/.risc0/bin" >> "$GITHUB_PATH"
+          "$HOME/.risc0/bin/rzup" install
+      - name: Locate the r0vm prover server
+        run: echo "RISC0_SERVER_PATH=$(find "$HOME/.risc0" -type f -name r0vm | head -1)" >> "$GITHUB_ENV"
+      - name: Build the Ethereum contract artifacts
+        working-directory: agent/ethereum
+        run: |
+          forge soldeer install
+          forge build
+      - name: Build the Solana program artifacts
+        working-directory: agent/solana/escrow
+        run: cargo build-sbf --tools-version v1.53
+      - name: Build the guest and run dev-mode proving tests
+        run: cargo test -p zescrow-prover
+      - name: Run the end-to-end matrix (both chains, dev mode)
+        run: cargo test -p zescrow-e2e -- --ignored --test-threads=1
