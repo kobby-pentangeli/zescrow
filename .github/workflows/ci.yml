@@ -151,7 +151,7 @@ jobs:
       - name: Format check
         run: forge fmt --check
       - name: Build
-        run: forge build
+        run: forge build --build-info
       - name: Test (unit, revert, fuzz)
         run: forge test -vvv
       - name: Static analysis (Slither)
